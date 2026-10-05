@@ -59,7 +59,6 @@ Windows SMTC  →  smtc-bridge  →  Chorus  →  OBS Browser Source
 ## Why Chorus
 
 | | |
-|---|---|
 | 🎧 **Works with what you already use** | Spotify, Apple Music, Deezer, YouTube Music, browsers, foobar2000, VLC, AIMP, MusicBee, mpv, NetEase, QQ Music, Kugou — anything that publishes a Windows media session. Pick your platform and Chorus sticks to it. |
 | 🔍 **Four lyric sources, in parallel** | LRCLIB, NetEase Cloud Music, QQ Music and Kugou, scored and ranked. |
 | 🈶 **Strong CJK coverage** | NetEase, QQ Music and Kugou alongside LRCLIB — and NetEase/QQ bring translations too. |
