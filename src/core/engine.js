@@ -21,6 +21,15 @@ export const EngineStatus = {
   IDLE: 'idle',
 };
 
+/**
+ * How often an unchanged track still produces a full snapshot.
+ *
+ * Between lyric lines a quiet passage can be silent for minutes, leaving a client
+ * with nothing to receive. The overlay uses that silence to detect a dead socket,
+ * and the snapshot also heals any drift it has accumulated.
+ */
+const HEARTBEAT_INTERVAL_MS = 20000;
+
 export class Engine extends EventEmitterLike {
   constructor(config, store) {
     super();
@@ -60,6 +69,8 @@ export class Engine extends EventEmitterLike {
     this.lastEmittedNonce = -1;
     /** Last play/pause state sent, so a pause is always broadcast. */
     this.lastEmittedPlaying = null;
+    /** When the last snapshot went out, used for the idle heartbeat. */
+    this.lastEmitAt = 0;
     /** Set by refresh() so the next track resolution skips the cache once. */
     this.bypassCacheOnce = false;
     this.lastTrackSignature = null;
@@ -451,27 +462,40 @@ export class Engine extends EventEmitterLike {
 
   /**
    * Cheap per-poll emit: fires when the active line changed, when the timeline
-   * was explicitly invalidated, or when playback started or stopped.
+   * was explicitly invalidated, when playback started or stopped, or when the
+   * heartbeat interval has elapsed.
    *
    * The play/stop case matters: the overlay dead-reckons its position from the
    * anchor it was last sent, so if a pause were never broadcast it would keep
    * advancing and the lyrics would carry on scrolling. Line index alone is not
    * a sufficient change signal.
+   *
+   * The heartbeat matters for a different reason: between lyric lines a quiet
+   * track can produce no messages at all for minutes. A client that has silently
+   * lost its socket then has no way to notice, and keeps rendering stale lyrics.
+   * A periodic full snapshot gives it something to receive, and heals any drift.
    */
   emitterTick() {
     const index = this.currentLineIndex();
     const playing = this.clock.playing;
+    const now = Date.now();
+    const heartbeatDue = now - this.lastEmitAt >= HEARTBEAT_INTERVAL_MS;
+
     const changed =
       index !== this.lastEmittedIndex ||
       this.state.timelineNonce !== this.lastEmittedNonce ||
       playing !== this.lastEmittedPlaying;
+    const isHeartbeat = !changed && heartbeatDue;
 
-    if (changed) {
+    if (changed || isHeartbeat) {
       this.lastEmittedIndex = index;
       this.lastEmittedNonce = this.state.timelineNonce;
       this.lastEmittedPlaying = playing;
+      this.lastEmitAt = now;
       this.state.lineIndex = index;
-      this.emitState({ reason: 'tick', full: false });
+      // Only a heartbeat carries the lyric document again. A plain line change
+      // stays a delta, because the client already has the lines.
+      this.emitState({ reason: isHeartbeat ? 'heartbeat' : 'tick', full: isHeartbeat });
     }
   }
 

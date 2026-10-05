@@ -472,24 +472,67 @@
 
     let socketState = 'connecting';
     let socket = null;
+    /** Closes a socket that has gone quiet, so a zombie connection cannot freeze the lyrics. */
+    let watchdog = null;
+    let lastMessageAt = 0;
+    let reconnectTimer = null;
 
     function setSocketState(next) {
       socketState = next;
       updateDebug();
     }
 
-    function connect() {
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      socket = new WebSocket(`${protocol}//${location.host}/ws?role=overlay`);
-      setSocketState('connecting');
+    /**
+     * A browser WebSocket can stop delivering data without ever firing `close` —
+     * typically after the machine sleeps or the network changes. The socket looks
+     * open, so nothing reconnects, and the overlay silently keeps showing stale
+     * lyrics while the server carries on fine.
+     *
+     * The server sends a heartbeat far more often than this, so a long silence
+     * means the connection is dead even though it claims otherwise.
+     */
+    const SILENCE_TIMEOUT_MS = 45000;
 
-      socket.onopen = () => setSocketState('open');
+    function startWatchdog() {
+      lastMessageAt = performance.now();
+      clearInterval(watchdog);
+      watchdog = setInterval(() => {
+        if (!socket) return;
+        if (socket.readyState !== 1) return; // already closing or closed
+        if (performance.now() - lastMessageAt > SILENCE_TIMEOUT_MS) {
+          setSocketState('stale');
+          // Force the reconnect path by dropping the socket ourselves.
+          try { socket.close(); } catch { /* already gone */ }
+        }
+      }, 5000);
+    }
+
+    function connect() {
+      clearTimeout(reconnectTimer);
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      try {
+        socket = new WebSocket(`${protocol}//${location.host}/ws?role=overlay`);
+      } catch (err) {
+        setSocketState('error');
+        reconnectTimer = setTimeout(connect, 1500);
+        return;
+      }
+      setSocketState('connecting');
+      startWatchdog();
+
+      socket.onopen = () => {
+        setSocketState('open');
+        lastMessageAt = performance.now();
+      };
       socket.onclose = () => {
         setSocketState('closed');
-        setTimeout(connect, 1500);
+        clearInterval(watchdog);
+        reconnectTimer = setTimeout(connect, 1500);
       };
       socket.onerror = () => setSocketState('error');
       socket.onmessage = (event) => {
+        // Any traffic counts as liveness, including the server's heartbeat.
+        lastMessageAt = performance.now();
         let message;
         try { message = JSON.parse(event.data); } catch { return; }
         if (message.type === 'hello') return;

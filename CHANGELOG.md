@@ -11,6 +11,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **An idle connection could stop receiving updates without noticing.** After the
+  machine slept or idled for a long time, the overlay's WebSocket could go quiet
+  without ever firing `close` — so nothing reconnected, and the lyrics stayed
+  frozen while the server was working perfectly. Two changes:
+
+  - the server now emits a **heartbeat full snapshot every 20 seconds** even when
+    nothing has changed, so a quiet passage between lyric lines still produces
+    traffic, and a client that missed an update heals itself;
+  - the overlay runs a **watchdog** that force-reconnects when nothing has been
+    heard for 45 seconds.
+
 - **Song titles containing `!` or `@` are no longer discarded.** The stream-title
   filter tested for a bare `[!！]\w{2,}`, so any song with an exclamation mark
   followed by letters was thrown away as if it were a Twitch chat-command title.
@@ -28,21 +39,26 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `!NVADE SHOW!`, `BANG!` and `P@ssword` survive while the real
   `!skinplace !h1 !discord !socials` tab is still filtered out.
 
-### Added
-
-- **15 regression checks for stream detection**, covering both directions: known
-  song titles are kept, and genuine stream titles are still rejected.
-
 ### Changed
+
+- **Node.js 22 or newer is now required** (was 20). Node 20 lacks the global
+  `WebSocket`, which broke CI. 22 is what the project is developed and verified
+  against.
 
 - **README rewritten** — centred header with badges (platform, Node, zero
   dependencies, OBS, license), a table of contents, GitHub alert callouts, and
   collapsible sections for the deeper explanations.
 
+### Added
+
+- **15 regression checks for stream detection**, covering both directions: known
+  song titles are kept, and genuine stream titles are still rejected.
+- **3 regression checks for the idle heartbeat.**
+
 ### Documentation
 
-- Corrected the test counts: 119 logic checks, 15 engine checks and 82 UI checks
-  (216 total).
+- Corrected the test counts: 119 logic checks, 18 engine checks and 82 UI checks
+  (219 total).
 
 ## [1.0.0] — 2026-10-05
 

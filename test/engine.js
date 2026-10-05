@@ -231,6 +231,55 @@ section('Cache bypass on refresh');
   })());
 }
 
+section('Idle heartbeat');
+
+{
+  /**
+   * Between lyric lines a quiet passage can produce no state changes for minutes.
+   * A client whose socket has silently died then has nothing to receive, so it
+   * cannot notice, and keeps rendering stale lyrics while the server is fine.
+   *
+   * The engine therefore sends a full snapshot on a fixed interval even when
+   * nothing has changed.
+   */
+  engine.state.lines = [
+    { timeMs: 0, endMs: 1000, text: 'one', translation: null },
+    { timeMs: 1000, endMs: 600000, text: 'two', translation: null },
+  ];
+  engine.state.track = {
+    appId: 'Spotify.exe',
+    title: 'Heartbeat Song',
+    artist: 'Test',
+    album: 'A',
+    platformName: 'Spotify',
+    durationMs: 600000,
+  };
+  // Pin the index so no line change can occur during the window.
+  engine.state.lineIndex = 1;
+  engine.lastEmittedIndex = 1;
+  engine.lastEmittedNonce = engine.state.timelineNonce;
+  engine.lastEmittedPlaying = engine.clock.playing;
+  engine.lastEmitAt = Date.now();
+
+  const seen = [];
+  const unsubscribe = engine.subscribe((ev, payload) => {
+    if (payload.reason === 'heartbeat') {
+      seen.push({ full: payload.full, carriesLines: Array.isArray(payload.lyrics?.lines) });
+    }
+  });
+
+  // HEARTBEAT_INTERVAL_MS is 20s; wait past it with slack for a loaded runner.
+  await new Promise((resolve) => setTimeout(resolve, 24000));
+  unsubscribe();
+
+  check('an unchanged track still emits a heartbeat', seen.length >= 1, `${seen.length} in 24s`);
+  check('the heartbeat is a full snapshot', seen.every((s) => s.full === true));
+  check(
+    'the heartbeat carries the lyric document, so a client can recover',
+    seen.every((s) => s.carriesLines),
+  );
+}
+
 engine.stop();
 bridge.server.close();
 
