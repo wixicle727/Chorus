@@ -96,15 +96,15 @@ jobs:
             }
           }
 
-          # The background-launch shortcut is recreated per machine, because a
-          # committed .lnk would embed the author's paths.
-          $ws = New-Object -ComObject WScript.Shell
-          $lnk = $ws.CreateShortcut((Join-Path (Resolve-Path $stage) 'Chorus (background).lnk'))
-          $lnk.TargetPath = "$env:SystemRoot\System32\wscript.exe"
-          $lnk.Arguments = '"' + (Join-Path (Resolve-Path $stage) 'launcher\chorus-hidden.vbs') + '"'
-          $lnk.WorkingDirectory = (Resolve-Path $stage).Path
-          $lnk.Description = 'Start Chorus hidden in the background'
-          $lnk.Save()
+          # No shortcut is shipped. A .lnk stores its target as an absolute path
+          # resolved at creation time, so one generated here would point into the
+          # CI staging directory ("D:\a\Chorus\Chorus\...") and be dead on every
+          # machine that unzipped the archive.
+          #
+          # start.bat is the documented launcher and works from any location,
+          # because it resolves the hidden helper relative to its own folder.
+          Write-Host "Staged release tree:"
+          Get-ChildItem $stage -Force | Select-Object Name
 
           $zip = "build/Chorus-${{ steps.version.outputs.value }}.zip"
           Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -Force

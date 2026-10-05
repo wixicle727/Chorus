@@ -18,6 +18,9 @@ desktop.ini
 node_modules/
 npm-debug.log*
 
+# Release staging, produced by the release workflow
+build/
+
 # Local scratch
 *.local
 .DS_Store
