@@ -1,0 +1,1585 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chorus — Control</title>
+<link rel="stylesheet" href="/css/control.css" />
+</head>
+<body>
+<div id="shell">
+  <!-- ------------------------------- sidebar ------------------------------- -->
+  <nav id="nav">
+    <div class="brand">
+      <div class="mark">♪</div>
+      <div>
+        <h1>Chorus</h1>
+        <p>OBS overlay control</p>
+      </div>
+    </div>
+
+    <button class="nav-item" data-page="now" aria-current="page"><span class="ico">▶</span><span>Now playing</span></button>
+    <button class="nav-item" data-page="lyrics"><span class="ico">☰</span><span>Lyrics</span><span class="badge" id="navLyricBadge" hidden>!</span></button>
+    <button class="nav-item" data-page="style"><span class="ico">✎</span><span>Style</span></button>
+    <button class="nav-item" data-page="obs"><span class="ico">▣</span><span>OBS setup</span></button>
+    <div class="nav-sep"></div>
+    <button class="nav-item" data-page="cache"><span class="ico">▤</span><span>Cache &amp; history</span></button>
+    <button class="nav-item" data-page="app"><span class="ico">⚙</span><span>Application</span></button>
+    <button class="nav-item" data-page="about"><span class="ico">?</span><span>About</span></button>
+
+    <div style="margin-top:auto; padding:14px 12px 4px; display:flex; align-items:center; gap:8px;">
+      <span class="chip" id="connChip">connecting</span>
+      <button class="btn ghost small" id="themeBtn" title="Toggle dark mode">◐</button>
+    </div>
+  </nav>
+
+  <!-- -------------------------------- content ------------------------------ -->
+  <main id="main">
+
+    <!-- ============================ NOW PLAYING ============================ -->
+    <section class="page active" id="page-now">
+      <div class="page-head">
+        <h2>Now playing</h2>
+        <p>Live from smtc-bridge. The overlay follows whatever is selected here.</p>
+      </div>
+
+      <div class="callout" id="timelineWarning" hidden></div>
+
+      <div class="card" id="playerCard">
+        <div class="player">
+          <div class="art" id="artBox">♪</div>
+          <div class="meta">
+            <div class="title" id="trackTitle">Nothing playing</div>
+            <div class="artist" id="trackArtist">—</div>
+            <div class="album" id="trackAlbum"></div>
+            <div class="tags" id="trackTags"></div>
+            <div class="progress-line">
+              <span class="time" id="posNow">0:00</span>
+              <div class="progress-track"><div class="bar" id="posBar"></div></div>
+              <span class="time" id="posEnd">0:00</span>
+            </div>
+            <div class="transport">
+              <button class="btn small" id="refreshBtn">↻ Re-resolve lyrics</button>
+              <button class="btn small" id="offsetBack" title="Show lyrics 250 ms earlier">−0.25s</button>
+              <span class="chip" id="offsetChip">offset 0 ms</span>
+              <button class="btn small" id="offsetFwd" title="Show lyrics 250 ms later">+0.25s</button>
+              <button class="btn small" id="copyLrcBtn">Copy LRC</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group" style="margin-top:20px">
+        <div class="group-title"><span class="ico">▦</span>Sources detected by Windows</div>
+        <div class="card" id="sessionsList"><div class="empty">No media sessions reported.</div></div>
+        <div class="hint">Windows reports every app that publishes media controls. Pick the one your music plays from as the primary platform below; the overlay prefers it even when something else is in focus.</div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">⚙</span>Source</div>
+        <div class="card">
+          <div class="row">
+            <div class="info">
+              <div class="t">Primary platform</div>
+              <div class="d">Lyrics come from this app whenever it has a track loaded.</div>
+            </div>
+            <div class="control"><select class="dropdown" id="primaryPlatform"></select></div>
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">smtc-bridge address</div>
+              <div class="d">Default is http://127.0.0.1:5000 — the port SMTC-Bridge listens on.</div>
+            </div>
+            <div class="control">
+              <input type="text" id="smtcUrl" style="min-width:230px" />
+              <button class="btn small" id="smtcTest">Test</button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">Poll interval</div>
+              <div class="d">How often Windows media state is read. 500 ms is a good default.</div>
+            </div>
+            <div class="control">
+              <input type="range" id="pollInterval" min="100" max="2000" step="100" />
+              <span class="value-readout" id="pollIntervalVal">500 ms</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== LYRICS =============================== -->
+    <section class="page" id="page-lyrics">
+      <div class="page-head">
+        <h2>Lyrics</h2>
+        <p>Where original lyrics are searched, and what came back for the current track.</p>
+      </div>
+
+      <div class="callout" id="lyricStatusCallout" hidden></div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">☁</span>Lyric sources</div>
+        <div class="card" id="providersList"></div>
+        <div class="hint">All enabled sources are queried at the same time. The best-scoring result wins; a source that only holds a cover will lose to the original.</div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">◎</span>Matching</div>
+        <div class="card">
+          <div class="row">
+            <div class="info">
+              <div class="t">Accept score</div>
+              <div class="d">A candidate at or above this confidence is used immediately.</div>
+            </div>
+            <div class="control">
+              <input type="range" id="acceptScore" min="40" max="100" step="5" />
+              <span class="value-readout" id="acceptScoreVal">75</span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">Minimum score</div>
+              <div class="d">Candidates below this are discarded outright.</div>
+            </div>
+            <div class="control">
+              <input type="range" id="minScore" min="0" max="80" step="5" />
+              <span class="value-readout" id="minScoreVal">40</span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">Duration tolerance</div>
+              <div class="d">How much a candidate's length may differ from the playing track.</div>
+            </div>
+            <div class="control">
+              <input type="range" id="durationTolerance" min="2000" max="20000" step="1000" />
+              <span class="value-readout" id="durationToleranceVal">8 s</span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">Preferred source on a tie</div>
+              <div class="d">Only used to break an exact score tie.</div>
+            </div>
+            <div class="control"><select class="dropdown" id="preferredProvider"></select></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">⇄</span>Fallback when the main source has nothing</div>
+        <div class="card">
+          <div class="row">
+            <div class="info">
+              <div class="t">Use the best result from another source</div>
+              <div class="d">If the preferred source returns no lyrics, take the top-ranked result from the other sources instead of showing nothing.</div>
+            </div>
+            <div class="control"><label class="switch"><input type="checkbox" id="fallbackEnabled" /><span class="track"></span></label></div>
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">Minimum score to accept a fallback</div>
+              <div class="d">Below this, the overlay stays blank until the next song rather than risking the wrong lyrics.</div>
+            </div>
+            <div class="control">
+              <input type="range" id="fallbackMinScore" min="50" max="100" step="1" />
+              <span class="value-readout" id="fallbackMinScoreVal">85</span>
+            </div>
+          </div>
+        </div>
+        <div class="hint">Only the single best fallback result is considered — and only when it is not from the preferred source. Everything still has to pass the title check.</div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">≡</span>Search results for this track</div>
+        <div class="card" id="resultsList"><div class="empty">Nothing playing yet.</div></div>
+        <div class="hint">Use <em>Apply</em> to force a specific result. That choice is remembered for this track only.</div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">✎</span>Paste your own LRC</div>
+        <div class="card">
+          <div class="row" style="align-items:flex-start">
+            <div class="info">
+              <textarea id="manualLrc" rows="6" placeholder="[00:12.34] First line&#10;[00:18.90] Second line"></textarea>
+              <div class="hint">Timestamps are required. <code>[mm:ss.xx]</code> lines only. Used when every source fails.</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">Remember for this track</div>
+              <div class="d">Applies the pasted lyrics automatically whenever this track plays again.</div>
+            </div>
+            <div class="control">
+              <label class="switch"><input type="checkbox" id="manualRemember" checked /><span class="track"></span></label>
+              <button class="btn primary" id="manualApply">Apply</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =============================== STYLE =============================== -->
+    <section class="page" id="page-style">
+      <div class="page-head">
+        <h2>Style</h2>
+        <p>Changes apply to the OBS overlay immediately — no refresh needed.</p>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">✎</span>Text</div>
+        <div class="card">
+          <div class="row">
+            <div class="info"><div class="t">Font family</div><div class="d">Any font installed on this machine. CJK fonts work.</div></div>
+            <div class="control"><input type="text" id="fontFamily" style="min-width:280px" /></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Line height</div><div class="d">Height of one line slot, in pixels.</div></div>
+            <div class="control">
+              <input type="range" id="lineHeight" min="50" max="180" step="5" />
+              <span class="value-readout" id="lineHeightVal">100 px</span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Overall text scale</div><div class="d">Multiplies every font size at once.</div></div>
+            <div class="control">
+              <input type="range" id="lineScale" min="0.6" max="2" step="0.05" />
+              <span class="value-readout" id="lineScaleVal">1.00×</span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Active line size</div><div class="d">The line currently being sung.</div></div>
+            <div class="control">
+              <input type="range" id="activeMainScale" min="1" max="3.2" step="0.05" />
+              <span class="value-readout" id="activeMainScaleVal">1.90×</span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Other line size</div><div class="d">Upcoming and previous lines.</div></div>
+            <div class="control">
+              <input type="range" id="inactiveMainScale" min="0.5" max="1.6" step="0.05" />
+              <span class="value-readout" id="inactiveMainScaleVal">0.95×</span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Translation size</div><div class="d">Size of the translation under the active line.</div></div>
+            <div class="control">
+              <input type="range" id="activeSubScale" min="0.6" max="2.4" step="0.05" />
+              <span class="value-readout" id="activeSubScaleVal">1.25×</span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Idle line opacity</div><div class="d">How far non-active lines fade back.</div></div>
+            <div class="control">
+              <input type="range" id="idleOpacity" min="0.1" max="1" step="0.05" />
+              <span class="value-readout" id="idleOpacityVal">0.55</span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Text shadow</div><div class="d">Drop-shadow distance. Raise it over busy scenes.</div></div>
+            <div class="control">
+              <input type="range" id="shadow" min="0" max="10" step="0.5" />
+              <span class="value-readout" id="shadowVal">3 px</span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Uppercase</div><div class="d">Force all lyric text to capitals.</div></div>
+            <div class="control"><label class="switch"><input type="checkbox" id="uppercase" /><span class="track"></span></label></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">◐</span>Colour</div>
+        <div class="card">
+          <div class="row">
+            <div class="info"><div class="t">Active line</div><div class="d">Applies to the line being sung.</div></div>
+            <div class="control"><input type="color" id="colorActive" /><input type="text" id="colorActiveHex" style="width:100px" /></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Other lines</div><div class="d">Upcoming and previous lines.</div></div>
+            <div class="control"><input type="color" id="colorMain" /><input type="text" id="colorMainHex" style="width:100px" /></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Translation</div><div class="d">The second line under the active lyric.</div></div>
+            <div class="control"><input type="color" id="colorSub" /><input type="text" id="colorSubHex" style="width:100px" /></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">▤</span>Layout</div>
+        <div class="card">
+          <div class="row">
+            <div class="info"><div class="t">Alignment</div><div class="d">Where lines sit horizontally in the source.</div></div>
+            <div class="control"><select class="dropdown" id="alignment">
+              <option value="left">Left</option><option value="center">Centre</option><option value="right">Right</option>
+            </select></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Show translation</div><div class="d">Display the translated line under the original.</div></div>
+            <div class="control"><label class="switch"><input type="checkbox" id="showTranslation" /><span class="track"></span></label></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Use translation as the main line</div><div class="d">Swap: translation becomes large, original becomes the sub-line.</div></div>
+            <div class="control"><label class="switch"><input type="checkbox" id="translationAsMain" /><span class="track"></span></label></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Show a note for empty lines</div><div class="d">Instrumental gaps get a ♪ instead of blank space.</div></div>
+            <div class="control"><label class="switch"><input type="checkbox" id="showPlaceholder" /><span class="track"></span></label></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">⚖</span>Timing</div>
+        <div class="card">
+          <div class="row">
+            <div class="info">
+              <div class="t">Global lyric offset</div>
+              <div class="d">Positive shows lyrics later. Use it when a source is consistently off.</div>
+            </div>
+            <div class="control">
+              <button class="btn small" data-offset="-500">−0.5s</button>
+              <button class="btn small" data-offset="-100">−0.1s</button>
+              <input type="number" id="offsetMs" step="50" style="width:100px" />
+              <button class="btn small" data-offset="100">+0.1s</button>
+              <button class="btn small" data-offset="500">+0.5s</button>
+              <button class="btn small" id="offsetReset">Reset</button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Hide text while paused</div><div class="d">Blank the overlay when playback stops.</div></div>
+            <div class="control"><label class="switch"><input type="checkbox" id="hideOnPause" /><span class="track"></span></label></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">▣</span>Preview</div>
+        <div class="card" style="padding:12px">
+          <div style="border-radius:6px;overflow:hidden;background:linear-gradient(135deg,#2b2b3d,#4a3f55);">
+            <iframe id="stylePreview" src="/overlay?debug=0" style="width:100%;height:300px;border:0;display:block;background:transparent"></iframe>
+          </div>
+          <div class="hint">This is the real overlay page, so what you see is exactly what OBS composites.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== OBS SETUP ============================ -->
+    <section class="page" id="page-obs">
+      <div class="page-head">
+        <h2>OBS setup</h2>
+        <p>Add the overlay as a browser source. It is transparent, so no chroma key is needed.</p>
+      </div>
+
+      <div class="callout"><span class="ico">ℹ</span><div>In OBS: <strong>Sources → + → Browser</strong>, paste the URL below, set the size to <strong>1200 × 300</strong>, and leave <em>Shutdown source when not visible</em> unchecked so lyrics are ready the moment you switch to the scene.</div></div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">▣</span>Browser source URL</div>
+        <div class="card">
+          <div class="row">
+            <div class="info"><input type="text" id="overlayUrl" readonly /></div>
+            <div class="control">
+              <button class="btn primary" id="copyOverlayUrl">Copy</button>
+              <button class="btn" id="openOverlay">Open</button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">Debug info in the corner</div>
+              <div class="d">Shows the socket state, line index and position. Useful while setting up; turn it off for streaming.</div>
+            </div>
+            <div class="control"><label class="switch"><input type="checkbox" id="debugMode" /><span class="track"></span></label></div>
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">Show the progress bar</div>
+              <div class="d">A thin track-position bar along the bottom edge.</div>
+            </div>
+            <div class="control"><label class="switch"><input type="checkbox" id="showProgress" /><span class="track"></span></label></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">▦</span>Optional: window capture</div>
+        <div class="card">
+          <div class="row">
+            <div class="info">
+              <div class="t">Open the overlay in a browser</div>
+              <div class="d">Use this only if you would rather capture a window than use a browser source. The background is transparent, so a plain window capture will include the desktop behind it.</div>
+            </div>
+            <div class="control"><button class="btn" id="openOverlay2">Open overlay</button></div>
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">Open the control panel URL</div>
+              <div class="d">Bookmark this to reach the panel without the terminal.</div>
+            </div>
+            <div class="control"><input type="text" id="controlUrl" readonly style="min-width:260px" /><button class="btn" id="copyControlUrl">Copy</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">⚙</span>Health</div>
+        <div class="card">
+          <div class="row">
+            <div class="info"><div class="t">smtc-bridge</div><div class="d" id="healthBridge">checking…</div></div>
+            <div class="control"><button class="btn small" id="healthCheck">Check now</button></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Engine</div><div class="d" id="healthEngine">—</div></div>
+            <div class="control"><span class="chip" id="healthWs">0 clients</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================== CACHE & HISTORY ========================= -->
+    <section class="page" id="page-cache">
+      <div class="page-head">
+        <h2>Cache &amp; history</h2>
+        <p>Resolved lyrics are cached on disk so a repeat song is instant.</p>
+      </div>
+
+      <div class="stat-grid" id="cacheStats" style="margin-bottom:20px"></div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">▤</span>Cached lyrics</div>
+        <div class="card">
+          <div class="row">
+            <div class="info"><input type="text" id="cacheQuery" placeholder="Filter by title or artist…" /></div>
+            <div class="control">
+              <button class="btn small" id="cacheReload">Reload</button>
+              <button class="btn small" id="cacheClear">Clear all</button>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:10px" id="cacheTable"><div class="empty">No cached lyrics yet.</div></div>
+        <div class="hint" id="cachePager"></div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">↻</span>Recently played</div>
+        <div class="card" id="historyList"><div class="empty">Nothing recorded yet.</div></div>
+      </div>
+    </section>
+
+    <!-- ============================ APPLICATION ============================ -->
+    <section class="page" id="page-app">
+      <div class="page-head">
+        <h2>Application</h2>
+        <p>How Chorus starts and runs on this machine.</p>
+      </div>
+
+      <div class="callout" id="autostartCallout" hidden></div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">▶</span>Startup</div>
+        <div class="card">
+          <div class="row">
+            <div class="info">
+              <div class="t">Start with Windows</div>
+              <div class="d">Launch Chorus at sign-in, hidden in the background, so the overlay is ready whenever OBS opens.</div>
+            </div>
+            <div class="control">
+              <span class="chip" id="autostartState">checking…</span>
+              <label class="switch"><input type="checkbox" id="autostartToggle" /><span class="track"></span></label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">Tray icon</div>
+              <div class="d">When started at sign-in, show a tray icon with quick access to the panel, the log and Quit.</div>
+            </div>
+            <div class="control">
+              <label class="switch"><input type="checkbox" id="trayAtStartup" checked /><span class="track"></span></label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">Open the control panel at sign-in</div>
+              <div class="d">Off by default — the overlay runs headless unless you ask for the panel too.</div>
+            </div>
+            <div class="control">
+              <label class="switch"><input type="checkbox" id="openControlOnStart" /><span class="track"></span></label>
+            </div>
+          </div>
+        </div>
+        <div class="hint">Registered for the current user only, so no administrator rights are needed. Turning this off removes the entry completely.</div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">▤</span>Register</div>
+        <div class="card">
+          <div class="row">
+            <div class="info">
+              <div class="t">Startup command</div>
+              <div class="d mono" id="autostartCommand" style="word-break:break-all">—</div>
+            </div>
+            <div class="control"><button class="btn small" id="copyAutostartCommand">Copy</button></div>
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">Windows location</div>
+              <div class="d mono" id="autostartLocation">HKCU\Software\Microsoft\Windows\CurrentVersion\Run → Chorus</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">⚙</span>Server</div>
+        <div class="card">
+          <div class="row">
+            <div class="info">
+              <div class="t">Port</div>
+              <div class="d">Restart Chorus after changing this. The OBS browser source URL changes with it.</div>
+            </div>
+            <div class="control">
+              <input type="number" id="serverPort" min="1024" max="65535" style="width:110px" />
+              <button class="btn small" id="applyPort">Apply</button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">Open the data folder</div>
+              <div class="d mono" id="appDataDir">data/</div>
+            </div>
+            <div class="control">
+              <button class="btn small" id="copyDataPath">Copy path</button>
+              <button class="btn small" id="openLogs">Show logs</button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">View the server log</div>
+              <div class="d">Recent output from the running server, including any startup errors.</div>
+            </div>
+            <div class="control"><button class="btn small" id="viewLog">Load log</button></div>
+          </div>
+        </div>
+        <pre id="logView" class="mono" style="display:none;max-height:260px;overflow:auto;background:var(--bg-input);border:1px solid var(--stroke-card);border-radius:8px;padding:12px;margin-top:10px;white-space:pre-wrap"></pre>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">✕</span>Stop</div>
+        <div class="card">
+          <div class="row">
+            <div class="info">
+              <div class="t">Quit Chorus</div>
+              <div class="d">Stops the server. If the tray icon is running it stays available; use its Quit item to remove that too.</div>
+            </div>
+            <div class="control"><button class="btn small" id="quitApp">Quit</button></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =============================== ABOUT =============================== -->
+    <section class="page" id="page-about">
+      <div class="page-head">
+        <h2>About</h2>
+        <p>How this works, and what it is built on.</p>
+      </div>
+
+      <div class="callout ok"><span class="ico">✓</span><div>Everything runs locally on this machine. No account, no cloud service, no telemetry. Lyrics are fetched from public endpoints using the track title and artist only.</div></div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">⇄</span>Pipeline</div>
+        <div class="card">
+          <div class="row"><div class="info">
+            <div class="t mono">Windows SMTC → smtc-bridge → this app → OBS browser source</div>
+            <div class="d">Playback state and metadata are read from Windows through smtc-bridge's REST API, matched against four lyric providers, and pushed to the overlay over a local WebSocket.</div>
+          </div></div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">★</span>Built on</div>
+        <div class="card">
+          <div class="row"><div class="info"><div class="t">smtc-bridge</div><div class="d">Exposes Windows media sessions as a REST API. Supplies title, artist, album, artwork and timeline.</div></div>
+            <div class="control"><a class="btn small" href="https://github.com/nuttylmao/smtc-bridge" target="_blank" rel="noreferrer">Source</a></div></div>
+          <div class="row"><div class="info"><div class="t">tosu-lyrics</div><div class="d">Reference for the overlay's three-line carousel look and lyric timing model.</div></div>
+            <div class="control"><a class="btn small" href="https://github.com/HollisMeynell/tosu-lyrics" target="_blank" rel="noreferrer">Source</a></div></div>
+          <div class="row"><div class="info"><div class="t">AF-Media-Bar</div><div class="d">Reference for multi-source lyric search, candidate scoring, and this control panel's visual style.</div></div>
+            <div class="control"><a class="btn small" href="https://github.com/Fervent-Tempo/AF-Media-Bar" target="_blank" rel="noreferrer">Source</a></div></div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">⚖</span>Lyric providers</div>
+        <div class="card">
+          <div class="row"><div class="info"><div class="t">LRCLIB</div><div class="d">Open, community-maintained, synced LRC. Needs no key and handles CJK titles.</div></div></div>
+          <div class="row"><div class="info"><div class="t">NetEase Cloud Music</div><div class="d">Strong CJK catalogue, supplies original, translation and romanisation.</div></div></div>
+          <div class="row"><div class="info"><div class="t">QQ Music</div><div class="d">Very broad CJK coverage; requires a Referer header, which this app sets server-side.</div></div></div>
+          <div class="row"><div class="info"><div class="t">Kugou</div><div class="d">Used as a further CJK fallback. Searched by title only, then ranked by duration.</div></div></div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">⚙</span>Configuration</div>
+        <div class="card">
+          <div class="row"><div class="info"><div class="t">Config file</div><div class="d mono" id="aboutDataDir">data/config.json</div></div>
+            <div class="control"><button class="btn small" id="copyConfigPath">Copy path</button></div></div>
+          <div class="row"><div class="info"><div class="t">Reset all style settings</div><div class="d">Restores the overlay's default appearance and timing.</div></div>
+            <div class="control"><button class="btn small" id="resetStyle">Reset style</button></div></div>
+          <div class="row"><div class="info"><div class="t">Clear remembered matches</div><div class="d">Forgets every manual "use this lyric" decision.</div></div>
+            <div class="control"><button class="btn small" id="clearOverrides">Clear</button></div></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+/* ------------------------------------------------------------------ *
+ * Control panel. Talks to the engine over /ws and the JSON API.
+ * ------------------------------------------------------------------ */
+
+const $ = (id) => document.getElementById(id);
+let state = null;
+let config = null;
+let socket = null;
+let providersMeta = [];
+let platformsMeta = [];
+/** Idle-line opacity. Lives in overlay settings so the overlay can read it directly. */
+let overlaysIdleOpacity = 0.55;
+
+/* ------------------------------- utilities ------------------------------ */
+
+function toast(message, isError = false) {
+  const el = $('toast');
+  el.textContent = message;
+  el.classList.toggle('error', isError);
+  el.classList.add('show');
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+function formatTime(ms) {
+  const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  const text = await res.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
+  if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
+  return body;
+}
+
+/** Debounce so dragging a slider does not spam the server. */
+function debounce(fn, ms = 180) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
+const saveConfig = debounce(async (patch, message) => {
+  try {
+    const result = await api('/api/config', { method: 'PUT', body: JSON.stringify(patch) });
+    config = result.config;
+    if (message) toast(message);
+  } catch (err) {
+    toast(`Could not save: ${err.message}`, true);
+  }
+}, 200);
+
+/* ---------------------------------- nav --------------------------------- */
+
+const navButtons = [...document.querySelectorAll('.nav-item')];
+function showPage(name) {
+  for (const btn of navButtons) {
+    btn.setAttribute('aria-current', btn.dataset.page === name ? 'page' : 'false');
+  }
+  for (const page of document.querySelectorAll('.page')) {
+    page.classList.toggle('active', page.id === `page-${name}`);
+  }
+  $('main').scrollTop = 0;
+  location.hash = name;
+}
+for (const btn of navButtons) btn.addEventListener('click', () => showPage(btn.dataset.page));
+if (location.hash) showPage(location.hash.slice(1));
+
+/* --------------------------------- theme -------------------------------- */
+
+const THEME_KEY = 'chorus-theme';
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem(THEME_KEY, theme);
+}
+applyTheme(localStorage.getItem(THEME_KEY) ?? 'dark');
+$('themeBtn').addEventListener('click', () => {
+  applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+  updateOverlayUrl();
+});
+
+/* ------------------------------ provider UI ----------------------------- */
+
+function renderProviders() {
+  const container = $('providersList');
+  if (!config) return;
+  container.innerHTML = '';
+  for (const provider of providersMeta) {
+    const enabled = config.lyrics.enabled.includes(provider.id);
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `
+      <div class="info">
+        <div class="t">${provider.label}</div>
+        <div class="d">${PROVIDER_NOTES[provider.id] ?? ''}</div>
+      </div>
+      <div class="control">
+        <label class="switch"><input type="checkbox" ${enabled ? 'checked' : ''} data-provider="${provider.id}" /><span class="track"></span></label>
+      </div>`;
+    container.appendChild(row);
+  }
+  for (const input of container.querySelectorAll('input[data-provider]')) {
+    input.addEventListener('change', () => {
+      const id = input.dataset.provider;
+      const enabled = new Set(config.lyrics.enabled);
+      if (input.checked) enabled.add(id); else enabled.delete(id);
+      if (enabled.size === 0) {
+        input.checked = true;
+        toast('At least one lyric source must stay enabled', true);
+        return;
+      }
+      saveConfig({ lyrics: { enabled: providersMeta.map((p) => p.id).filter((p) => enabled.has(p)) } });
+    });
+  }
+}
+
+const PROVIDER_NOTES = {
+  lrclib: 'Open database, synced LRC, best coverage for Western tracks.',
+  netease: 'Best for CJK tracks; also returns translations.',
+  qq: 'Very broad CJK coverage, occasionally has translations.',
+  kugou: 'Fallback for CJK. Searched by title, then matched on duration.',
+};
+
+function renderProviderSelects() {
+  const preferred = $('preferredProvider');
+  preferred.innerHTML = '';
+  for (const provider of providersMeta) {
+    const option = document.createElement('option');
+    option.value = provider.id;
+    option.textContent = provider.label;
+    preferred.appendChild(option);
+  }
+  if (config) preferred.value = config.lyrics.preferredProvider;
+
+  const platformSelect = $('primaryPlatform');
+  platformSelect.innerHTML = '';
+  for (const platform of platformsMeta) {
+    const option = document.createElement('option');
+    option.value = platform.id;
+    option.textContent = platform.name;
+    platformSelect.appendChild(option);
+  }
+  if (config) platformSelect.value = config.source.primaryPlatform;
+}
+
+/* --------------------------- config <-> controls ------------------------ */
+
+/** Wire a range input to a config path with a live readout. */
+function bindRange(id, path, readoutId, format, transform = Number) {
+  const input = $(id);
+  const readout = $(readoutId);
+  input.addEventListener('input', () => {
+    if (readout) readout.textContent = format(transform(input.value));
+  });
+  input.addEventListener('change', () => {
+    saveConfig(buildPatch(path, transform(input.value)));
+  });
+}
+
+function bindCheckbox(id, path) {
+  const input = $(id);
+  input.addEventListener('change', () => saveConfig(buildPatch(path, input.checked)));
+}
+
+function bindText(id, path, message) {
+  const input = $(id);
+  input.addEventListener('change', () => saveConfig(buildPatch(path, input.value), message));
+}
+
+/** Turn 'overlay.colorMain' into { overlay: { colorMain: value } }. */
+function buildPatch(path, value) {
+  const parts = path.split('.');
+  const patch = {};
+  let cursor = patch;
+  parts.forEach((part, index) => {
+    if (index === parts.length - 1) cursor[part] = value;
+    else cursor = cursor[part] = {};
+  });
+  return patch;
+}
+
+function setControlsFromConfig() {
+  if (!config) return;
+  const o = config.overlay;
+  $('primaryPlatform').value = config.source.primaryPlatform;
+  $('smtcUrl').value = config.smtc.url;
+  $('pollInterval').value = config.smtc.pollIntervalMs;
+  $('pollIntervalVal').textContent = `${config.smtc.pollIntervalMs} ms`;
+
+  $('acceptScore').value = config.lyrics.acceptScore;
+  $('acceptScoreVal').textContent = config.lyrics.acceptScore;
+  $('minScore').value = config.lyrics.minScore;
+  $('minScoreVal').textContent = config.lyrics.minScore;
+  $('durationTolerance').value = config.lyrics.durationToleranceMs;
+  $('durationToleranceVal').textContent = `${config.lyrics.durationToleranceMs / 1000} s`;
+  $('preferredProvider').value = config.lyrics.preferredProvider;
+  $('fallbackEnabled').checked = Boolean(config.lyrics.fallback?.enabled);
+  $('fallbackMinScore').value = config.lyrics.fallback?.minScore ?? 85;
+  $('fallbackMinScoreVal').textContent = config.lyrics.fallback?.minScore ?? 85;
+
+  $('fontFamily').value = o.fontFamily;
+  $('lineHeight').value = o.lineHeightPx;
+  $('lineHeightVal').textContent = `${o.lineHeightPx} px`;
+  $('lineScale').value = o.lineScale;
+  $('lineScaleVal').textContent = `${Number(o.lineScale).toFixed(2)}×`;
+  $('activeMainScale').value = o.activeMainScale;
+  $('activeMainScaleVal').textContent = `${Number(o.activeMainScale).toFixed(2)}×`;
+  $('inactiveMainScale').value = o.inactiveMainScale;
+  $('inactiveMainScaleVal').textContent = `${Number(o.inactiveMainScale).toFixed(2)}×`;
+  $('activeSubScale').value = o.activeSubScale;
+  $('activeSubScaleVal').textContent = `${Number(o.activeSubScale).toFixed(2)}×`;
+  $('shadow').value = o.shadow;
+  $('shadowVal').textContent = `${o.shadow} px`;
+  $('uppercase').checked = Boolean(o.uppercase);
+
+  $('colorActive').value = o.colorActive;
+  $('colorActiveHex').value = o.colorActive;
+  $('colorMain').value = o.colorMain;
+  $('colorMainHex').value = o.colorMain;
+  $('colorSub').value = o.colorSub;
+  $('colorSubHex').value = o.colorSub;
+
+  $('alignment').value = o.alignment;
+  $('showTranslation').checked = Boolean(o.showTranslation);
+  $('translationAsMain').checked = Boolean(o.translationAsMain);
+  $('showPlaceholder').checked = Boolean(o.showPlaceholder);
+  $('hideOnPause').checked = Boolean(o.hideOnPause);
+  $('offsetMs').value = config.window.offsetMs;
+
+  // Idle opacity rides along with the inactive scale; surface it as its own slider.
+  $('idleOpacity').value = overlaysIdleOpacity;
+  $('idleOpacityVal').textContent = Number(overlaysIdleOpacity).toFixed(2);
+
+  // Application page. The data directory arrives with /api/health, which may not
+  // have resolved yet; checkHealth fills it in.
+  $('serverPort').value = config.server.port;
+  $('trayAtStartup').checked = config.app?.trayAtStartup !== false;
+  $('openControlOnStart').checked = Boolean(config.app?.openControlOnStart);
+
+  $('manualRemember').checked = true;
+}
+
+function wireControls() {
+  $('primaryPlatform').addEventListener('change', (e) => saveConfig({ source: { primaryPlatform: e.target.value } }, 'Primary platform updated'));
+  $('smtcUrl').addEventListener('change', (e) => saveConfig({ smtc: { url: e.target.value.trim() } }, 'Address saved'));
+  $('smtcTest').addEventListener('click', async () => {
+    try {
+      const result = await api('/api/sessions');
+      if (result.ok) toast(`smtc-bridge OK — ${result.sessions.length} session(s)`);
+      else toast(result.error ?? 'no response', true);
+    } catch (err) { toast(err.message, true); }
+  });
+  bindRange('pollInterval', 'smtc.pollIntervalMs', 'pollIntervalVal', (v) => `${v} ms`);
+
+  $('acceptScore').addEventListener('input', (e) => { $('acceptScoreVal').textContent = e.target.value; });
+  $('acceptScore').addEventListener('change', (e) => saveConfig({ lyrics: { acceptScore: Number(e.target.value) } }));
+  $('minScore').addEventListener('input', (e) => { $('minScoreVal').textContent = e.target.value; });
+  $('minScore').addEventListener('change', (e) => saveConfig({ lyrics: { minScore: Number(e.target.value) } }));
+  $('durationTolerance').addEventListener('input', (e) => { $('durationToleranceVal').textContent = `${Number(e.target.value) / 1000} s`; });
+  $('durationTolerance').addEventListener('change', (e) => saveConfig({ lyrics: { durationToleranceMs: Number(e.target.value) } }));
+  $('preferredProvider').addEventListener('change', (e) => saveConfig({ lyrics: { preferredProvider: e.target.value } }));
+
+  // Fallback when the main source has no lyrics.
+  $('fallbackEnabled').addEventListener('change', (e) => {
+    saveConfig({ lyrics: { fallback: { enabled: e.target.checked } } },
+      e.target.checked ? 'Fallback enabled' : 'Fallback disabled');
+  });
+  $('fallbackMinScore').addEventListener('input', (e) => { $('fallbackMinScoreVal').textContent = e.target.value; });
+  $('fallbackMinScore').addEventListener('change', (e) => {
+    saveConfig({ lyrics: { fallback: { minScore: Number(e.target.value) } } });
+  });
+
+  bindText('fontFamily', 'overlay.fontFamily', 'Font updated');
+  bindRange('lineHeight', 'overlay.lineHeightPx', 'lineHeightVal', (v) => `${v} px`);
+  bindRange('lineScale', 'overlay.lineScale', 'lineScaleVal', (v) => `${Number(v).toFixed(2)}×`);
+  bindRange('activeMainScale', 'overlay.activeMainScale', 'activeMainScaleVal', (v) => `${Number(v).toFixed(2)}×`);
+  bindRange('inactiveMainScale', 'overlay.inactiveMainScale', 'inactiveMainScaleVal', (v) => `${Number(v).toFixed(2)}×`);
+  bindRange('activeSubScale', 'overlay.activeSubScale', 'activeSubScaleVal', (v) => `${Number(v).toFixed(2)}×`);
+  bindRange('shadow', 'overlay.shadow', 'shadowVal', (v) => `${v} px`);
+  bindCheckbox('uppercase', 'overlay.uppercase');
+
+  $('idleOpacity').addEventListener('input', (e) => {
+    overlaysIdleOpacity = Number(e.target.value);
+    $('idleOpacityVal').textContent = overlaysIdleOpacity.toFixed(2);
+    // The overlay derives idle opacity from the scale, so send it through settings.
+    saveConfig({ overlay: { idleOpacity: overlaysIdleOpacity } });
+  });
+
+  // Colour pickers and their hex fields stay in sync both ways.
+  for (const [picker, hex, key] of [['colorActive', 'colorActiveHex', 'colorActive'], ['colorMain', 'colorMainHex', 'colorMain'], ['colorSub', 'colorSubHex', 'colorSub']]) {
+    $(picker).addEventListener('change', (e) => {
+      $(hex).value = e.target.value;
+      saveConfig(buildPatch(`overlay.${key}`, e.target.value));
+    });
+    $(hex).addEventListener('change', (e) => {
+      const value = e.target.value.trim();
+      if (!/^#[0-9a-f]{6}$/i.test(value)) { toast('Use a hex colour like #ffffff', true); return; }
+      $(picker).value = value;
+      saveConfig(buildPatch(`overlay.${key}`, value));
+    });
+  }
+
+  bindSelect('alignment', 'overlay.alignment');
+  bindCheckbox('showTranslation', 'overlay.showTranslation');
+  bindCheckbox('translationAsMain', 'overlay.translationAsMain');
+  bindCheckbox('showPlaceholder', 'overlay.showPlaceholder');
+  bindCheckbox('hideOnPause', 'overlay.hideOnPause');
+
+  $('offsetMs').addEventListener('change', (e) => setOffset(Number(e.target.value)));
+  $('offsetReset').addEventListener('click', () => setOffset(0));
+  for (const btn of document.querySelectorAll('[data-offset]')) {
+    btn.addEventListener('click', () => nudgeOffset(Number(btn.dataset.offset)));
+  }
+  $('refreshBtn').addEventListener('click', async () => {
+    $('refreshBtn').disabled = true;
+    try { await api('/api/refresh', { method: 'POST', body: '{}' }); toast('Re-searching lyrics…'); }
+    catch (err) { toast(err.message, true); }
+    finally { setTimeout(() => { $('refreshBtn').disabled = false; }, 800); }
+  });
+  $('copyLrcBtn').addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/lrc');
+      if (!res.ok) throw new Error('no lyrics loaded');
+      await navigator.clipboard.writeText(await res.text());
+      toast('LRC copied to the clipboard');
+    } catch (err) { toast(`Copy failed: ${err.message}`, true); }
+  });
+
+  $('manualApply').addEventListener('click', async () => {
+    const lrc = $('manualLrc').value;
+    if (!lrc.trim()) { toast('Paste some timed lyrics first', true); return; }
+    try {
+      const result = await api('/api/manual', {
+        method: 'POST',
+        body: JSON.stringify({ lrc, remember: $('manualRemember').checked }),
+      });
+      if (result.ok) toast(`Applied ${result.lines} lines`);
+      else toast(result.error ?? 'could not apply', true);
+    } catch (err) { toast(err.message, true); }
+  });
+
+  // Debug + progress toggles are overlay query parameters, not config.
+  $('debugMode').addEventListener('change', () => { updateOverlayUrl(); refreshPreview(); });
+  $('showProgress').addEventListener('change', () => { updateOverlayUrl(); refreshPreview(); });
+
+  $('copyOverlayUrl').addEventListener('click', () => copy($('overlayUrl').value, 'Overlay URL copied — paste it into the OBS browser source'));
+  $('openOverlay').addEventListener('click', () => window.open($('overlayUrl').value, '_blank'));
+  $('openOverlay2').addEventListener('click', () => window.open($('overlayUrl').value, '_blank'));
+  $('copyControlUrl').addEventListener('click', () => copy($('controlUrl').value, 'Control panel URL copied'));
+
+  $('healthCheck').addEventListener('click', checkHealth);
+  $('cacheReload').addEventListener('click', () => loadCache(0));
+  $('cacheQuery').addEventListener('input', debounce(() => loadCache(0), 300));
+  $('cacheClear').addEventListener('click', async () => {
+    if (!confirm('Delete every cached lyric? They will be fetched again when the song plays.')) return;
+    await api('/api/cache', { method: 'DELETE' });
+    loadCache(0);
+    toast('Cache cleared');
+  });
+  $('resetStyle').addEventListener('click', async () => {
+    if (!confirm('Reset all overlay style settings to their defaults?')) return;
+    await api('/api/config', { method: 'PUT', body: JSON.stringify({ overlay: DEFAULTS_FOR_RESET }) });
+    config = await api('/api/config');
+    setControlsFromConfig();
+    toast('Style reset');
+  });
+  $('clearOverrides').addEventListener('click', async () => {
+    if (!confirm('Forget every remembered lyric match? Tracks will be searched again from scratch.')) return;
+    try {
+      const result = await api('/api/overrides', { method: 'DELETE' });
+      toast(`Cleared ${result.removed} remembered match${result.removed === 1 ? '' : 'es'}`);
+      loadCache(0);
+    } catch (err) { toast(err.message, true); }
+  });
+  $('copyConfigPath').addEventListener('click', () => copy($('aboutDataDir').textContent, 'Path copied'));
+
+  wireApplicationPage();
+}
+
+/* ---------------------------- application page --------------------------- */
+
+/**
+ * Auto-start is stored in the Windows registry (it is what actually launches
+ * Chorus), so the toggle reads the real registry state rather than the config
+ * file. `data/config.json` only mirrors the last choice.
+ */
+async function refreshAutostart() {
+  const toggle = $('autostartToggle');
+  const chip = $('autostartState');
+  const callout = $('autostartCallout');
+  try {
+    const status = await api('/api/autostart');
+    toggle.checked = Boolean(status.enabled);
+    toggle.disabled = !status.supported;
+    chip.textContent = status.supported ? (status.enabled ? 'enabled' : 'disabled') : 'unsupported';
+    chip.className = `chip ${status.enabled ? 'ok' : ''}`;
+    $('autostartCommand').textContent = status.expected ?? '—';
+    // The registry is preferred; the Startup folder is the fallback for
+    // machines whose Run key cannot be written.
+    $('autostartLocation').textContent = status.method === 'startup-folder'
+      ? 'Startup folder → Chorus.lnk  (the registry was not writable)'
+      : 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run → Chorus';
+
+    if (!status.supported) {
+      callout.hidden = false;
+      callout.className = 'callout warn';
+      callout.innerHTML = '<span class="ico">!</span><div>Auto-start is only available on Windows.</div>';
+    } else if (status.stale) {
+      callout.hidden = false;
+      callout.className = 'callout warn';
+      callout.innerHTML = '<span class="ico">!</span><div><strong>The start-up entry points somewhere else.</strong> It was probably created before Chorus was moved. Toggle auto-start off and on to rewrite it.</div>';
+    } else if (status.enabled && status.method === 'startup-folder') {
+      callout.hidden = false;
+      callout.className = 'callout warn';
+      callout.innerHTML = '<span class="ico">!</span><div>Registered through the <strong>Startup folder</strong>, because this machine would not accept a registry entry. It works the same way.</div>';
+    } else if (status.enabled) {
+      callout.hidden = false;
+      callout.className = 'callout ok';
+      callout.innerHTML = '<span class="ico">✓</span><div>Chorus will start hidden in the background the next time you sign in. Manage it from the tray icon.</div>';
+    } else {
+      callout.hidden = true;
+    }
+  } catch (err) {
+    chip.textContent = 'error';
+    chip.className = 'chip error';
+    callout.hidden = false;
+    callout.className = 'callout error';
+    callout.innerHTML = `<span class="ico">✕</span><div>Could not read the start-up state: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function wireApplicationPage() {
+  $('autostartToggle').addEventListener('change', async (e) => {
+    const toggle = e.target;
+    toggle.disabled = true;
+    try {
+      const result = await api('/api/autostart', {
+        method: 'POST',
+        body: JSON.stringify({ enabled: toggle.checked }),
+      });
+      if (result.ok) toast(toggle.checked ? 'Chorus will start with Windows' : 'Auto-start turned off');
+      else toast(result.error ?? 'could not change auto-start', true);
+      // Mirror the choice into config so the panel can report intent.
+      await api('/api/config', { method: 'PUT', body: JSON.stringify({ app: { autostart: toggle.checked } }) }).catch(() => {});
+    } catch (err) {
+      toast(err.message, true);
+      toggle.checked = !toggle.checked;
+    } finally {
+      toggle.disabled = false;
+      refreshAutostart();
+    }
+  });
+
+  $('trayAtStartup').addEventListener('change', (e) => {
+    saveConfig({ app: { trayAtStartup: e.target.checked } }, e.target.checked ? 'Tray icon on at sign-in' : 'Tray icon off at sign-in');
+  });
+  $('openControlOnStart').addEventListener('change', (e) => {
+    saveConfig({ app: { openControlOnStart: e.target.checked } });
+  });
+
+  $('applyPort').addEventListener('click', async () => {
+    const port = Number($('serverPort').value);
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      toast('Enter a port between 1024 and 65535', true);
+      return;
+    }
+    if (port === config.server.port) { toast('That is already the port'); return; }
+    if (!confirm(`Change the port to ${port}?\n\nYou must restart Chorus, and update the OBS browser source URL, for this to take effect.`)) return;
+    await api('/api/config', { method: 'PUT', body: JSON.stringify({ server: { port } }) });
+    config = await api('/api/config');
+    updateOverlayUrl();
+    toast(`Port set to ${port}. Restart Chorus to apply.`);
+  });
+
+  $('copyAutostartCommand').addEventListener('click', () => copy($('autostartCommand').textContent, 'Start-up command copied'));
+  $('copyDataPath').addEventListener('click', () => copy($('appDataDir').textContent, 'Path copied'));
+
+  $('openLogs').addEventListener('click', async () => {
+    try {
+      const data = await api('/api/log?lines=200');
+      const view = $('logView');
+      view.style.display = 'block';
+      view.textContent = data.exists
+        ? `${data.path}\n${'─'.repeat(60)}\n${(data.lines ?? []).join('\n')}`
+        : `No log file yet at ${data.path}.\nIt is created when Chorus runs in the background from the tray.`;
+    } catch (err) { toast(err.message, true); }
+  });
+
+  $('quitApp').addEventListener('click', async () => {
+    if (!confirm('Stop the Chorus server?\n\nThe OBS overlay will stop updating.')) return;
+    try {
+      await api('/api/shutdown', { method: 'POST', body: '{}' });
+      toast('Chorus is shutting down');
+      setTimeout(() => {
+        document.body.innerHTML = '<div style="display:grid;place-items:center;height:100vh;color:rgba(255,255,255,.7);font:14px system-ui">Chorus has stopped. Close this tab.</div>';
+      }, 600);
+    } catch (err) { toast(err.message, true); }
+  });
+}
+
+function bindSelect(id, path) {
+  $(id).addEventListener('change', (e) => saveConfig(buildPatch(path, e.target.value)));
+}
+
+async function copy(text, message) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(message);
+  } catch {
+    toast('Clipboard blocked by the browser — select and copy manually', true);
+  }
+}
+
+async function setOffset(value) {
+  try {
+    const result = await api('/api/offset', { method: 'PUT', body: JSON.stringify({ offsetMs: value }) });
+    $('offsetMs').value = result.offsetMs;
+  } catch (err) { toast(err.message, true); }
+}
+
+async function nudgeOffset(delta) {
+  try {
+    const result = await api('/api/offset', { method: 'POST', body: JSON.stringify({ deltaMs: delta }) });
+    $('offsetMs').value = result.offsetMs;
+    toast(`Offset ${result.offsetMs > 0 ? '+' : ''}${result.offsetMs} ms`);
+  } catch (err) { toast(err.message, true); }
+}
+
+/* --------------------------- style defaults reset ----------------------- */
+
+const DEFAULTS_FOR_RESET = {
+  lineHeightPx: 100,
+  lineScale: 1,
+  activeMainScale: 1.9,
+  inactiveMainScale: 0.95,
+  activeSubScale: 1.25,
+  inactiveSubScale: 0.64,
+  alignment: 'center',
+  showTranslation: true,
+  translationAsMain: false,
+  colorMain: '#ffffff',
+  colorSub: '#e0e0e0',
+  colorActive: '#ffffff',
+  shadow: 3,
+  uppercase: false,
+  showPlaceholder: true,
+  hideOnPause: false,
+  idleOpacity: 0.55,
+  fontFamily: '"Segoe UI", "Microsoft YaHei UI", "Meiryo", system-ui, sans-serif',
+};
+
+/* -------------------------------- overlay ------------------------------- */
+
+function updateOverlayUrl() {
+  const base = `${location.origin}/overlay`;
+  const params = new URLSearchParams();
+  if ($('debugMode').checked) params.set('debug', '1');
+  if ($('showProgress').checked) params.set('progress', '1');
+  const query = params.toString();
+  $('overlayUrl').value = query ? `${base}?${query}` : base;
+  $('controlUrl').value = `${location.origin}/control`;
+}
+
+function refreshPreview() {
+  $('stylePreview').src = $('overlayUrl').value;
+}
+
+/* ------------------------------ live state ------------------------------ */
+
+function renderState(next) {
+  state = next;
+  const track = next.track;
+  const lyrics = next.lyrics ?? {};
+  const playback = next.playback ?? {};
+
+  // Player card
+  const artBox = $('artBox');
+  if (track?.thumbnail) {
+    artBox.innerHTML = `<img alt="" src="${track.thumbnail}" />`;
+  } else {
+    artBox.textContent = '♪';
+  }
+  $('trackTitle').textContent = track?.title || 'Nothing playing';
+  $('trackArtist').textContent = track?.artist || '—';
+  $('trackAlbum').textContent = track?.album || '';
+
+  const tags = $('trackTags');
+  tags.innerHTML = '';
+  const addTag = (text, cls = '') => {
+    if (!text) return;
+    const span = document.createElement('span');
+    span.className = `chip ${cls}`;
+    span.textContent = text;
+    tags.appendChild(span);
+  };
+  addTag(track?.platformName, 'accent');
+  if (lyrics.providerLabel) addTag(lyrics.providerLabel, 'accent');
+  if (lyrics.viaFallback) addTag('fallback source', 'warn');
+  // Timings approximated from untimed plain lyrics: honest labelling, because the
+  // sync will drift where a real LRC would not.
+  if (lyrics.estimated) addTag('estimated timing', 'warn');
+  if (lyrics.fromCache) addTag('cached');
+  if (lyrics.manual) addTag('manual', 'ok');
+  if (lyrics.status && lyrics.status !== 'matched') addTag(lyrics.status, lyrics.status === 'notfound' ? 'warn' : 'error');
+  if (track?.durationMs) addTag(formatTime(track.durationMs));
+  if (playback.playing === false && track) addTag('paused');
+  // Some players publish metadata but no timeline, so lyrics cannot advance.
+  if (track && playback.timelineAvailable === false) addTag('no timeline', 'warn');
+
+  $('posNow').textContent = formatTime(playback.positionMs);
+  $('posEnd').textContent = formatTime(playback.durationMs);
+  $('posBar').style.width = playback.durationMs
+    ? `${Math.min(100, (playback.positionMs / playback.durationMs) * 100)}%`
+    : '0%';
+  $('offsetChip').textContent = `offset ${lyrics.offsetMs ?? 0} ms`;
+  if (document.activeElement !== $('offsetMs')) $('offsetMs').value = lyrics.offsetMs ?? 0;
+
+  /**
+   * A player can report the track but withhold the timeline. foobar2000 does
+   * this without its media-control component, and the symptom is that lyrics are
+   * found but never advance — which looks like a Chorus bug unless we say so.
+   */
+  const timelineWarning = $('timelineWarning');
+  if (track && playback.timelineAvailable === false) {
+    timelineWarning.hidden = false;
+    timelineWarning.innerHTML =
+      `<span class="ico">!</span><div><strong>${escapeHtml(track.platformName || 'This player')} is not reporting the track position to Windows.</strong><br>` +
+      `Lyrics were found, but they cannot scroll because the playback timeline stays at 0:00. ` +
+      `Enable system media controls in the player — for foobar2000 install the <em>foo_mediacontrol</em> component — then restart it.</div>`;
+  } else {
+    timelineWarning.hidden = true;
+  }
+
+  // Sessions
+  const sessionsList = $('sessionsList');
+  if (!next.sessions?.length) {
+    sessionsList.innerHTML = '<div class="empty">No media sessions reported.</div>';
+  } else {
+    sessionsList.innerHTML = next.sessions.map((s) => {
+      const statusText = s.isPlaying ? 'playing' : s.playbackStatus === 5 ? 'paused' : 'idle';
+      const statusClass = s.isPlaying ? 'ok' : '';
+      return `<div class="result">
+        <span class="chip ${statusClass}">${statusText}</span>
+        <div class="body">
+          <div class="t">${escapeHtml(s.title || '(no title)')}${s.artist ? ` — ${escapeHtml(s.artist)}` : ''}</div>
+          <div class="d mono">${escapeHtml(s.appId)} · ${escapeHtml(s.platformName)}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Lyric status callout + nav badge
+  const callout = $('lyricStatusCallout');
+  const badge = $('navLyricBadge');
+  if (next.status === 'bridge-down') {
+    callout.hidden = false;
+    callout.className = 'callout error';
+    callout.innerHTML = `<span class="ico">✕</span><div><strong>smtc-bridge is not reachable.</strong> ${escapeHtml(next.error ?? '')}<br>Start SMTC-Bridge (it runs on port 5000 by default), then this fills in automatically.</div>`;
+    badge.hidden = false;
+  } else if (lyrics.status === 'notfound') {
+    callout.hidden = false;
+    callout.className = 'callout warn';
+    // A cached negative result is a common source of "I changed a setting and
+    // nothing happened", so point at the fix.
+    const cachedHint = lyrics.fromCache
+      ? '<br>This negative result is cached — use <strong>Re-resolve lyrics</strong> to search again with your current settings.'
+      : '';
+    callout.innerHTML = lyrics.blankUntilNextTrack
+      ? `<span class="ico">!</span><div><strong>No lyrics shown for this track.</strong> ${escapeHtml(lyrics.fallbackReason ?? 'No source reached the fallback score.')}<br>The overlay stays blank until the next song.${cachedHint}</div>`
+      : `<span class="ico">!</span><div><strong>No lyrics found for this track.</strong> Try enabling more sources, or paste your own below.${cachedHint}</div>`;
+    badge.hidden = false;
+  } else if (lyrics.status === 'error') {
+    callout.hidden = false;
+    callout.className = 'callout error';
+    callout.innerHTML = `<span class="ico">✕</span><div><strong>Lyric lookup failed.</strong> ${escapeHtml(lyrics.error ?? '')}</div>`;
+    badge.hidden = false;
+  } else {
+    callout.hidden = true;
+    badge.hidden = true;
+  }
+
+  renderResults(next);
+}
+
+function escapeHtml(text) {
+  return String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/**
+ * Candidate list.
+ *
+ * The highest-scoring candidate is chosen automatically, so the list is ordered by
+ * score and the one in use is marked "Using". Every other row offers Apply, which
+ * overrides the automatic pick and is remembered for that track.
+ */
+function renderResults(next) {
+  const container = $('resultsList');
+  const lyrics = next.lyrics ?? {};
+  const current = lyrics.candidate;
+  const alternatives = lyrics.alternatives ?? [];
+
+  if (!current && alternatives.length === 0) {
+    container.innerHTML = `<div class="empty">${next.track ? 'No candidates matched this track.' : 'Nothing playing yet.'}</div>`;
+    return;
+  }
+
+  // Order strictly by score so the list reads as a ranking; the in-use entry is
+  // marked rather than promoted to the top, so its position shows its real rank.
+  const rows = [];
+  if (current) rows.push({ ...current, inUse: true });
+  for (const alt of alternatives) rows.push(alt);
+  rows.sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0));
+
+  const topScore = rows.length ? Number(rows[0].score ?? 0) : 0;
+
+  container.innerHTML = `
+    <div class="row" style="border-bottom:1px solid var(--divider)">
+      <div class="info">
+        <div class="d">Highest score wins automatically — the top result is ${topScore ? topScore.toFixed(0) : '–'}${
+          current ? `, and ${lyrics.manual ? 'a manual choice is' : `${escapeHtml(current.providerLabel ?? current.provider)} is`} in use` : ''
+        }. Use <strong>Apply</strong> on any row to override it.</div>
+      </div>
+    </div>
+    ${rows.map((c) => {
+      const score = Number(c.score ?? 0);
+      const scoreClass = score >= 75 ? 'high' : score >= 50 ? 'mid' : '';
+      const attrs = [
+        `data-provider="${escapeHtml(c.provider)}"`,
+        `data-key="${escapeHtml(c.key)}"`,
+        `data-title="${escapeHtml(c.title ?? '')}"`,
+        `data-artist="${escapeHtml(c.artist ?? '')}"`,
+        `data-album="${escapeHtml(c.album ?? '')}"`,
+        `data-duration="${c.durationMs ?? 0}"`,
+      ].join(' ');
+      return `<div class="result ${c.inUse ? 'winner' : ''}">
+        <span class="score ${scoreClass}">${score ? score.toFixed(0) : '–'}</span>
+        <div class="body">
+          <div class="t">${escapeHtml(c.title || '(no title)')}${c.inUse ? ' <span class="chip ok">in use</span>' : ''}</div>
+          <div class="d">${escapeHtml(c.artist || 'unknown artist')}${c.album ? ` · ${escapeHtml(c.album)}` : ''} · ${formatTime(c.durationMs)} · <span class="mono">${escapeHtml(c.providerLabel ?? c.provider)}</span></div>
+        </div>
+        <div class="actions">
+          <button class="btn small${c.inUse ? '' : ' primary'}" data-apply ${attrs}>${c.inUse ? 'Re-apply' : 'Apply'}</button>
+        </div>
+      </div>`;
+    }).join('')}
+    ${lyrics.manual ? `<div class="row"><div class="info"><div class="d">A manual choice is in use for this track.
+      <button class="btn small" id="clearOverride">Clear and use the automatic pick</button></div></div></div>` : ''}`;
+
+  // One delegated listener rather than one per row: re-rendering on every state
+  // push would otherwise accumulate handlers.
+  container.onclick = async (event) => {
+    const clear = event.target.closest('#clearOverride');
+    if (clear) {
+      try {
+        await api('/api/override/clear', { method: 'POST', body: '{}' });
+        await api('/api/refresh', { method: 'POST', body: '{}' });
+        toast('Reverted to the automatic pick');
+      } catch (err) { toast(err.message, true); }
+      return;
+    }
+
+    const btn = event.target.closest('[data-apply]');
+    if (!btn) return;
+    btn.disabled = true;
+    try {
+      const result = await api('/api/candidate', {
+        method: 'POST',
+        body: JSON.stringify({
+          provider: btn.dataset.provider,
+          key: btn.dataset.key,
+          title: btn.dataset.title,
+          artist: btn.dataset.artist,
+          album: btn.dataset.album,
+          durationMs: Number(btn.dataset.duration),
+          remember: true,
+        }),
+      });
+      if (result.ok) toast(`Applied — ${result.lines} lines`);
+      else toast(result.error ?? 'could not apply', true);
+    } catch (err) {
+      toast(err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  };
+}
+
+/* -------------------------------- health -------------------------------- */
+
+async function checkHealth() {
+  try {
+    const health = await api('/api/health');
+    $('healthEngine').textContent = `v${health.version} · node ${health.node} · up ${Math.floor(health.uptimeSeconds / 60)}m ${health.uptimeSeconds % 60}s`;
+    $('healthWs').textContent = `${health.wsClients} client${health.wsClients === 1 ? '' : 's'}`;
+    $('aboutDataDir').textContent = health.dataDir;
+    $('appDataDir').textContent = health.dataDir;
+  } catch (err) {
+    $('healthEngine').textContent = `unreachable: ${err.message}`;
+  }
+  try {
+    const sessions = await api('/api/sessions');
+    $('healthBridge').textContent = sessions.ok
+      ? `connected — ${sessions.sessions.length} session(s)${sessions.os ? `, ${sessions.os}` : ''}`
+      : `error: ${sessions.error}`;
+  } catch (err) {
+    $('healthBridge').textContent = `error: ${err.message}`;
+  }
+}
+
+/* --------------------------------- cache -------------------------------- */
+
+let cachePage = 0;
+async function loadCache(page = 0) {
+  cachePage = page;
+  const query = encodeURIComponent($('cacheQuery').value.trim());
+  const data = await api(`/api/cache?page=${page}&pageSize=25&query=${query}`);
+
+  const stats = data.stats;
+  $('cacheStats').innerHTML = [
+    ['Cached tracks', stats.cacheEntries],
+    ['With lyrics', stats.withLyrics],
+    ['No lyrics found', stats.notFound],
+    ['Manual matches', stats.manual],
+    ['Overrides', stats.overrides],
+  ].map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+
+  const table = $('cacheTable');
+  if (data.items.length === 0) {
+    table.innerHTML = '<div class="empty">No cached lyrics yet. Play something to populate it.</div>';
+  } else {
+    table.innerHTML = `<table class="table">
+      <thead><tr><th>Track</th><th>Source</th><th>Lines</th><th>Last used</th><th></th></tr></thead>
+      <tbody>${data.items.map((item) => `
+        <tr>
+          <td><div>${escapeHtml(item.title)}</div><div class="mono" style="color:var(--text-tertiary)">${escapeHtml(item.artist)}</div></td>
+          <td><span class="chip ${item.status === 'matched' ? 'ok' : 'warn'}">${escapeHtml(item.providerLabel ?? item.status)}</span></td>
+          <td>${item.lineCount}</td>
+          <td class="mono">${item.lastUsedAt ? new Date(item.lastUsedAt).toLocaleString() : '—'}</td>
+          <td><button class="btn ghost small" data-remove="${item.hash}">Remove</button></td>
+        </tr>`).join('')}</tbody>
+    </table>`;
+    for (const btn of table.querySelectorAll('[data-remove]')) {
+      btn.addEventListener('click', async () => {
+        await api(`/api/cache/${btn.dataset.remove}`, { method: 'DELETE' });
+        loadCache(cachePage);
+      });
+    }
+  }
+
+  const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
+  $('cachePager').innerHTML = data.total > data.pageSize
+    ? `Page ${data.page + 1} of ${pages} — ${data.total} entries
+       <button class="btn small" id="cachePrev" ${data.page === 0 ? 'disabled' : ''}>Previous</button>
+       <button class="btn small" id="cacheNext" ${data.page + 1 >= pages ? 'disabled' : ''}>Next</button>`
+    : `${data.total} entries`;
+  const prev = $('cachePrev');
+  const next = $('cacheNext');
+  if (prev) prev.addEventListener('click', () => loadCache(data.page - 1));
+  if (next) next.addEventListener('click', () => loadCache(data.page + 1));
+}
+
+async function loadHistory() {
+  const data = await api('/api/history');
+  const list = $('historyList');
+  if (!data.tracks?.length) {
+    list.innerHTML = '<div class="empty">Nothing recorded yet.</div>';
+    return;
+  }
+  list.innerHTML = `<table class="table">
+    <thead><tr><th>Track</th><th>Source</th><th>Result</th><th>Plays</th><th>When</th></tr></thead>
+    <tbody>${data.tracks.map((t) => `
+      <tr>
+        <td><div>${escapeHtml(t.title)}</div><div class="mono" style="color:var(--text-tertiary)">${escapeHtml(t.artist)}</div></td>
+        <td>${escapeHtml(t.platform || '—')}</td>
+        <td><span class="chip ${t.status === 'matched' ? 'ok' : 'warn'}">${escapeHtml(t.providerLabel ?? t.status)}</span></td>
+        <td>${t.plays}</td>
+        <td class="mono">${t.at ? new Date(t.at).toLocaleString() : '—'}</td>
+      </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+/* ------------------------------- websocket ------------------------------ */
+
+function connect() {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  socket = new WebSocket(`${protocol}//${location.host}/ws?role=control`);
+  const chip = $('connChip');
+
+  socket.onopen = () => { chip.textContent = 'connected'; chip.className = 'chip ok'; };
+  socket.onclose = () => {
+    chip.textContent = 'reconnecting'; chip.className = 'chip warn';
+    setTimeout(connect, 1500);
+  };
+  socket.onerror = () => { chip.textContent = 'error'; chip.className = 'chip error'; };
+  socket.onmessage = (event) => {
+    let message;
+    try { message = JSON.parse(event.data); } catch { return; }
+    if (message.type === 'hello') return;
+    if (message.type === 'error') { toast(message.message, true); return; }
+    renderState(message);
+  };
+}
+
+/* --------------------------------- boot --------------------------------- */
+
+async function boot() {
+  const meta = await api('/api/providers');
+  providersMeta = meta.providers;
+  platformsMeta = meta.platforms;
+  config = await api('/api/config');
+  if (config.overlay.idleOpacity !== undefined) overlaysIdleOpacity = config.overlay.idleOpacity;
+
+  renderProviders();
+  renderProviderSelects();
+  setControlsFromConfig();
+  wireControls();
+  updateOverlayUrl();
+  refreshPreview();
+  refreshAutostart();
+
+  connect();
+  checkHealth();
+  loadCache(0);
+  loadHistory();
+  setInterval(checkHealth, 15000);
+
+  // The overlay link must follow whichever host the panel was opened on.
+  setInterval(updateOverlayUrl, 5000);
+}
+
+boot().catch((err) => {
+  console.error(err);
+  toast(`Failed to load: ${err.message}`, true);
+});
+</script>
+</body>
+</html>

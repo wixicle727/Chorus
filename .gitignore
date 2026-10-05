@@ -1,0 +1,23 @@
+# Runtime data. Everything here is generated on first run and is specific to your
+# machine, so none of it belongs in version control.
+data/
+*.pid
+
+# Logs
+*.log
+logs/
+
+# Editing/OS noise
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+
+# Node (the project has no dependencies, but these appear if you add any)
+node_modules/
+npm-debug.log*
+
+# Local scratch
+*.local
+.DS_Store

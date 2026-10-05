@@ -1,0 +1,160 @@
+name: Release
+
+# Publishing a GitHub release is what produces the download. Tag a commit and
+# push the tag, or run this workflow manually and give it a version.
+#
+#   git tag v1.0.0
+#   git push origin v1.0.0
+#
+# Chorus has no build step and no dependencies, so the "artifact" is the source
+# tree itself, archived. The archive is laid out so that unzipping it and running
+# start.bat works with no further setup.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to build (e.g. v1.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Resolve the version
+        id: version
+        shell: pwsh
+        run: |
+          $v = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ inputs.version }}' } else { '${{ github.ref_name }}' }
+          if (-not $v) { Write-Error 'no version resolved'; exit 1 }
+          "value=$v" >> $env:GITHUB_OUTPUT
+          $bare = $v -replace '^v',''
+          "bare=$bare" >> $env:GITHUB_OUTPUT
+          Write-Host "Releasing $v (package version $bare)"
+
+      - name: Verify the tag matches package.json
+        shell: pwsh
+        run: |
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          if ($pkg.version -ne '${{ steps.version.outputs.bare }}') {
+            Write-Error "package.json says $($pkg.version) but the tag says ${{ steps.version.outputs.bare }}"
+          }
+
+      # Never ship a broken build: the same gates as CI, offline only.
+      - name: Logic tests (offline)
+        run: node test/run.js --offline
+
+      - name: Engine timing tests
+        run: node test/engine.js
+
+      - name: Start the server
+        shell: pwsh
+        run: |
+          Start-Process -FilePath node -ArgumentList @('src/index.js','--no-open') -NoNewWindow
+          $up = $false
+          for ($i = 0; $i -lt 40; $i++) {
+            Start-Sleep -Milliseconds 500
+            try { Invoke-RestMethod 'http://127.0.0.1:6727/api/health' -TimeoutSec 2 | Out-Null; $up = $true; break } catch { }
+          }
+          if (-not $up) { Write-Error 'server did not start'; exit 1 }
+
+      - name: UI and API tests
+        run: node test/ui.js
+
+      - name: Stop the server
+        if: always()
+        shell: pwsh
+        run: Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+      - name: Assemble the release archive
+        shell: pwsh
+        run: |
+          $stage = 'build/Chorus'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          # Source-of-truth paths only. data/ is generated on first run and the
+          # .lnk is machine-specific, so neither is shipped.
+          foreach ($item in @('src','web','launcher','docs','package.json','README.md','CHANGELOG.md','LICENSE','start.bat','.gitignore')) {
+            if (Test-Path $item) {
+              Copy-Item $item -Destination $stage -Recurse -Force
+            } else {
+              Write-Host "skipping missing $item"
+            }
+          }
+
+          # The background-launch shortcut is recreated per machine, because a
+          # committed .lnk would embed the author's paths.
+          $ws = New-Object -ComObject WScript.Shell
+          $lnk = $ws.CreateShortcut((Join-Path (Resolve-Path $stage) 'Chorus (background).lnk'))
+          $lnk.TargetPath = "$env:SystemRoot\System32\wscript.exe"
+          $lnk.Arguments = '"' + (Join-Path (Resolve-Path $stage) 'launcher\chorus-hidden.vbs') + '"'
+          $lnk.WorkingDirectory = (Resolve-Path $stage).Path
+          $lnk.Description = 'Start Chorus hidden in the background'
+          $lnk.Save()
+
+          $zip = "build/Chorus-${{ steps.version.outputs.value }}.zip"
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -Force
+          Write-Host "built $zip"
+          Get-Item $zip | Select-Object FullName, Length
+
+      - name: Write release notes from the changelog
+        shell: pwsh
+        run: |
+          # Use the matching "## [x.y.z]" section of CHANGELOG.md as the body.
+          $version = '${{ steps.version.outputs.bare }}'
+          $lines = Get-Content CHANGELOG.md
+          $body = New-Object System.Collections.Generic.List[string]
+          $capturing = $false
+          foreach ($line in $lines) {
+            if ($line -match "^##\s+\[?$([regex]::Escape($version))\]?") { $capturing = $true; continue }
+            if ($capturing -and $line -match '^##\s') { break }
+            if ($capturing) { $body.Add($line) }
+          }
+          if ($body.Count -eq 0) { $body.Add("See CHANGELOG.md for details.") }
+
+          $notes = @"
+          Live lyrics for OBS, driven by Windows SMTC.
+
+          ## Requirements
+
+          - Windows 10 or 11
+          - [Node.js](https://nodejs.org/) 20 or newer
+          - [smtc-bridge](https://github.com/nuttylmao/smtc-bridge) running on port 5000
+
+          ## Install
+
+          1. Download ``Chorus-${{ steps.version.outputs.value }}.zip`` below and unzip it anywhere.
+          2. Start smtc-bridge.
+          3. Run ``start.bat``. A tray icon appears near the clock.
+          4. In OBS add a **Browser** source pointing at ``http://127.0.0.1:6727/overlay``, size 1200x300.
+
+          ## What's changed
+
+          $($body -join "`n")
+          "@
+
+          Set-Content -Path build/release-notes.md -Value $notes -Encoding utf8
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.value }}
+          name: Chorus ${{ steps.version.outputs.value }}
+          body_path: build/release-notes.md
+          files: build/Chorus-${{ steps.version.outputs.value }}.zip
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.value, '-') }}

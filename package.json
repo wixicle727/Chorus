@@ -1,0 +1,43 @@
+{
+  "name": "chorus",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chorus — live lyrics for OBS, driven by Windows SMTC (smtc-bridge), with multi-platform original-lyrics lookup.",
+  "keywords": [
+    "obs",
+    "lyrics",
+    "smtc",
+    "now-playing",
+    "windows",
+    "overlay",
+    "lrc"
+  ],
+  "license": "MIT",
+  "author": "Chorus contributors",
+  "homepage": "https://github.com/wixicle727/Chorus#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wixicle727/Chorus.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wixicle727/Chorus/issues"
+  },
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "start:tray": "node src/index.js --tray",
+    "stop": "node src/index.js --quit",
+    "test": "node test/run.js",
+    "test:offline": "node test/run.js --offline",
+    "test:engine": "node test/engine.js",
+    "test:ui": "node test/ui.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "os": [
+    "win32"
+  ],
+  "dependencies": {}
+}

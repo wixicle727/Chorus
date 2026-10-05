@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Tests (Node ${{ matrix.node }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # The project has no dependencies, so there is nothing to install. This
+      # step exists only to fail loudly if a dependency is ever introduced
+      # without updating the workflow.
+      - name: Confirm there are no dependencies
+        shell: pwsh
+        run: |
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          if ($pkg.dependencies.PSObject.Properties.Count -gt 0) {
+            Write-Error "package.json declares dependencies; add an install step."
+          }
+
+      - name: Syntax check every module
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem -Recurse -Filter *.js -File |
+            Where-Object { $_.FullName -notmatch 'node_modules' } |
+            ForEach-Object {
+              node --check $_.FullName
+              if ($LASTEXITCODE -ne 0) { Write-Host "FAILED: $($_.FullName)"; $failed = $true }
+            }
+          if ($failed) { exit 1 }
+
+      # Offline only: the live provider tests hit third-party APIs and would be
+      # flaky (and rude) in CI. Run them locally with `npm test`.
+      - name: Logic tests (offline)
+        run: node test/run.js --offline
+
+      - name: Engine timing tests
+        run: node test/engine.js
+
+      - name: Start the server
+        shell: pwsh
+        run: |
+          Start-Process -FilePath node -ArgumentList @('src/index.js','--no-open') -NoNewWindow
+          $up = $false
+          for ($i = 0; $i -lt 40; $i++) {
+            Start-Sleep -Milliseconds 500
+            try { Invoke-RestMethod 'http://127.0.0.1:6727/api/health' -TimeoutSec 2 | Out-Null; $up = $true; break } catch { }
+          }
+          if (-not $up) { Write-Error 'server did not start'; exit 1 }
+
+      - name: UI and API tests
+        run: node test/ui.js
+
+      - name: Prepare the tray/log launcher for signing checks
+        shell: pwsh
+        run: |
+          # The PowerShell launchers must parse cleanly, since they are run by
+          # Windows PowerShell 5.1 on the user's machine.
+          foreach ($f in @('launcher/chorus-tray.ps1','launcher/chorus-console.ps1')) {
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f).Path, [ref]$null, [ref]$errors)
+            if ($errors -and $errors.Count) {
+              $errors | ForEach-Object { Write-Host $_.Message }
+              Write-Error "PowerShell parse failed: $f"
+            }
+          }
+
+      - name: Stop the server
+        if: always()
+        shell: pwsh
+        run: Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue

@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chorus — Overlay</title>
+<!--
+  OBS browser source page.
+
+  Deliberately transparent: no background is painted anywhere, so OBS composites
+  the lyrics over the scene. Implements the tosu-lyrics look — a three-line
+  carousel (300px tall, one 100px slot per line) that translates so the active
+  line sits in the middle, with the active line distinguished by font size only
+  and a marquee that scrolls lines wider than the source.
+-->
+<style>
+  :root {
+    --line-height: 100px;
+    --main-active-scale: 1.9;
+    --main-idle-scale: 0.95;
+    --sub-active-scale: 1.25;
+    --sub-idle-scale: 0.64;
+    --color-main: #ffffff;
+    --color-sub: #e0e0e0;
+    --color-active: #ffffff;
+    --shadow: 3px;
+    --font-family: "Segoe UI", "Microsoft YaHei UI", "Meiryo", system-ui, sans-serif;
+    --opacity-idle: 0.55;
+    --gap: 10px;
+    --align: center;
+    --text-transform: none;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    font-family: var(--font-family);
+    /* Keep OBS from antialiasing text differently between GPU runs. */
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    display: block;
+  }
+
+  #viewport {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+
+  #list {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    will-change: transform;
+    transition: transform 320ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+
+  .line {
+    height: var(--line-height);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: var(--align-items, center);
+    padding: 0 6px;
+    user-select: none;
+    overflow: hidden;
+  }
+
+  .main, .sub {
+    margin: 0;
+    padding: 0;
+    white-space: nowrap;
+    font-weight: 700;
+    line-height: 1.15;
+    transition: font-size 300ms cubic-bezier(0.22, 0.61, 0.36, 1),
+                opacity 300ms ease;
+    /* Sized in em so the control panel's line-scale multiplies everything. */
+    font-size: 1.5em;
+    color: var(--color-main);
+    text-transform: var(--text-transform);
+  }
+
+  .main {
+    filter: drop-shadow(2px 2px var(--shadow) rgba(0, 0, 0, 0.95));
+    opacity: var(--opacity-idle);
+  }
+
+  .sub {
+    color: var(--color-sub);
+    font-size: 1em;
+    margin-top: 0.25em;
+    filter: drop-shadow(2px 2px calc(var(--shadow) * 0.8) rgba(0, 0, 0, 0.95));
+    display: none;
+  }
+
+  /* The active line: larger, brighter, and the only one showing its translation. */
+  li.active .main {
+    font-size: calc(1.5em * var(--main-active-scale) / 1.5);
+    color: var(--color-active);
+  }
+  li.active .sub {
+    display: block;
+    font-size: calc(1em * var(--sub-active-scale));
+  }
+
+  li.idle .main {
+    font-size: calc(1.5em * var(--main-idle-scale) / 1.5);
+  }
+  li.idle .sub { display: none; }
+
+  li.lead .main { opacity: var(--opacity-idle); }
+
+  /* Marquee for lines wider than the source: scroll across during the line. */
+  .track {
+    display: inline-block;
+    will-change: transform;
+  }
+  li.scrolling .track {
+    animation: marquee var(--scroll-duration, 6s) linear infinite;
+  }
+  @keyframes marquee {
+    0%   { transform: translateX(0); }
+    12%  { transform: translateX(0); }
+    88%  { transform: translateX(var(--scroll-distance, 0px)); }
+    100% { transform: translateX(var(--scroll-distance, 0px)); }
+  }
+
+  /* Idle / no-lyrics plate. Hidden unless there is something to say. */
+  #notice {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    color: var(--color-sub);
+    font-size: 1.1em;
+    font-weight: 600;
+    opacity: 0.85;
+  }
+  #notice.show { display: flex; }
+  #notice .title { font-size: 1.15em; color: var(--color-main); }
+  #notice .hint { font-size: 0.62em; font-weight: 500; opacity: 0.7; margin-top: 0.5em; }
+
+  /* Thin progress bar pinned to the bottom edge of the source. */
+  #progress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.16);
+    display: none;
+  }
+  #progress.show { display: block; }
+  #progress .bar {
+    height: 100%;
+    width: 0%;
+    background: var(--color-active);
+    opacity: 0.85;
+    transition: width 400ms linear;
+  }
+
+  /* Shown only if the page is opened outside OBS, so a blank page is not confusing. */
+  #debug {
+    position: absolute;
+    left: 8px;
+    top: 6px;
+    font-size: 11px;
+    font-family: ui-monospace, Consolas, monospace;
+    color: #ff9f43;
+    background: rgba(0, 0, 0, 0.55);
+    padding: 2px 6px;
+    border-radius: 4px;
+    display: none;
+    white-space: pre;
+    max-width: 90%;
+  }
+  body.show-debug #debug { display: block; }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <div id="viewport">
+      <ul id="list" aria-live="off"></ul>
+    </div>
+    <div id="notice"><div class="title"></div><div class="hint"></div></div>
+    <div id="progress"><div class="bar"></div></div>
+    <div id="debug"></div>
+  </div>
+
+  <script type="module">
+    /**
+     * Overlay runtime.
+     *
+     * The server sends the lyric document plus an anchor (position + playing +
+     * wall clock). Between messages this page dead-reckons the position so lines
+     * change exactly on time rather than on the next poll, then corrects itself
+     * whenever a message arrives.
+     */
+    const params = new URLSearchParams(location.search);
+    const WINDOW = Number(params.get('window') || 3);      // visible line slots
+    const SHOW_DEBUG = params.get('debug') === '1';
+    const SHOW_PROGRESS = params.get('progress') === '1';
+
+    const listEl = document.getElementById('list');
+    const noticeEl = document.getElementById('notice');
+    const noticeTitleEl = noticeEl.querySelector('.title');
+    const noticeHintEl = noticeEl.querySelector('.hint');
+    const progressEl = document.getElementById('progress');
+    const progressBarEl = progressEl.querySelector('.bar');
+    const debugEl = document.getElementById('debug');
+    if (SHOW_DEBUG) document.body.classList.add('show-debug');
+
+    let settings = {
+      visibleLines: WINDOW,
+      lineHeightPx: 100,
+      lineScale: 1,
+      activeMainScale: 1.9,
+      inactiveMainScale: 0.95,
+      activeSubScale: 1.25,
+      inactiveSubScale: 0.64,
+      alignment: 'center',
+      showTranslation: true,
+      translationAsMain: false,
+      colorMain: '#ffffff',
+      colorSub: '#e0e0e0',
+      colorActive: '#ffffff',
+      shadow: 3,
+      uppercase: false,
+      idleOpacity: 0.55,
+      leadInText: '',
+      hideOnPause: false,
+      showPlaceholder: true,
+    };
+
+    // Local mirror of the last server state.
+    let lines = [];
+    let timerAnchor = { positionMs: 0, at: performance.now(), playing: false };
+    let renderSignature = '';
+    let lastIndex = -2;
+    let status = 'idle';
+    let track = null;
+    let offsetMs = 0;
+    let sourceWidth = 0;
+    let blankUntilNextTrack = false;
+
+    function currentPositionMs() {
+      const elapsed = performance.now() - timerAnchor.at;
+      return timerAnchor.playing ? timerAnchor.positionMs + elapsed : timerAnchor.positionMs;
+    }
+
+    /** Last line whose start time has passed; -1 before the first line. */
+    function indexAt(positionMs) {
+      if (!lines.length) return -1;
+      const t = positionMs + offsetMs;
+      if (t < lines[0].timeMs) return -1;
+      let lo = 0;
+      let hi = lines.length - 1;
+      let answer = 0;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (lines[mid].timeMs <= t) { answer = mid; lo = mid + 1; }
+        else hi = mid - 1;
+      }
+      return answer;
+    }
+
+    function applySettings(next) {
+      if (!next) return;
+      settings = { ...settings, ...next };
+      const root = document.documentElement.style;
+      root.setProperty('--line-height', `${settings.lineHeightPx}px`);
+      const base = Number(settings.lineScale) || 1;
+      root.setProperty('--main-active-scale', String(Number(settings.activeMainScale) * base));
+      root.setProperty('--main-idle-scale', String(Number(settings.inactiveMainScale) * base));
+      root.setProperty('--sub-active-scale', String(Number(settings.activeSubScale) * base));
+      root.setProperty('--sub-idle-scale', String(Number(settings.inactiveSubScale) * base));
+      root.setProperty('--color-main', settings.colorMain);
+      root.setProperty('--color-sub', settings.colorSub);
+      root.setProperty('--color-active', settings.colorActive);
+      root.setProperty('--shadow', `${settings.shadow}px`);
+      root.setProperty('--font-family', settings.fontFamily || 'inherit');
+      root.setProperty('--text-transform', settings.uppercase ? 'uppercase' : 'none');
+      root.setProperty('--opacity-idle', String(Number(settings.idleOpacity ?? 0.55)));
+      const alignMap = { left: 'flex-start', center: 'center', right: 'flex-end' };
+      root.setProperty('--align-items', alignMap[settings.alignment] ?? 'center');
+      // Elements are laid out centre-out, so the transform maths stays identical
+      // for every alignment; only the text anchoring changes.
+      listEl.style.textAlign = settings.alignment ?? 'center';
+    }
+
+    /** Rebuild the line elements when the lyric document or settings change. */
+    function buildLines() {
+      listEl.innerHTML = '';
+      const fragment = document.createDocumentFragment();
+      lines.forEach((line, index) => {
+        const li = document.createElement('li');
+        li.className = 'line';
+        li.dataset.index = String(index);
+
+        const main = document.createElement('p');
+        main.className = 'main';
+        const mainText = settings.translationAsMain && line.translation ? line.translation : line.text;
+        main.textContent = mainText || (settings.showPlaceholder ? '♪' : '');
+
+        const sub = document.createElement('p');
+        sub.className = 'sub';
+        if (settings.showTranslation && line.translation && !settings.translationAsMain) {
+          sub.textContent = line.translation;
+        } else if (settings.translationAsMain && line.translation) {
+          sub.textContent = line.text;
+        }
+
+        // Wrap in a track span so the marquee can translate the text independently.
+        const mainTrack = document.createElement('span');
+        mainTrack.className = 'track';
+        mainTrack.appendChild(main);
+        li.appendChild(mainTrack);
+
+        if (sub.textContent) {
+          const subTrack = document.createElement('span');
+          subTrack.className = 'track';
+          subTrack.appendChild(sub);
+          li.appendChild(subTrack);
+        }
+
+        fragment.appendChild(li);
+      });
+      listEl.appendChild(fragment);
+      // One shared tall spacer at the end lets the last real line reach the centre.
+      const spacer = document.createElement('li');
+      spacer.className = 'line';
+      spacer.setAttribute('aria-hidden', 'true');
+      spacer.style.height = `${(Math.max(1, Math.floor((settings.visibleLines ?? 3) / 2)) + 1) * settings.lineHeightPx}px`;
+      listEl.appendChild(spacer);
+      measureScroll();
+    }
+
+    /**
+     * Decide which lines are wider than the source and set up their marquee.
+     * A line scrolls across once per line duration, which is how tosu-lyrics
+     * times its `--time`.
+     */
+    function measureScroll() {
+      sourceWidth = document.getElementById('viewport').clientWidth;
+      const items = listEl.querySelectorAll('li.line');
+      items.forEach((li) => {
+        const index = Number(li.dataset.index);
+        if (!Number.isFinite(index)) return;
+        const tracks = li.querySelectorAll('.track');
+        if (tracks.length === 0) return;
+        let widest = 0;
+        tracks.forEach((t) => { widest = Math.max(widest, t.scrollWidth); });
+        const overflow = widest - sourceWidth + 24;
+        if (overflow > 8) {
+          li.classList.add('scrolling');
+          li.style.setProperty('--scroll-distance', `${-overflow}px`);
+          // Match the animation to the line's own duration, clamped to sane bounds.
+          const line = lines[index];
+          const duration = line ? Math.max(2000, Math.min(line.endMs - line.timeMs, 20000)) : 6000;
+          li.style.setProperty('--scroll-duration', `${duration}ms`);
+        } else {
+          li.classList.remove('scrolling');
+        }
+      });
+    }
+
+    /** Position the list so the active line occupies the middle slot. */
+    function render(force = false) {
+      const index = indexAt(currentPositionMs());
+
+      // "Hide text while paused" blanks the lyric lines. Visibility is computed
+      // on every pass rather than only on a line change, otherwise pausing would
+      // not blank the text until the next line boundary.
+      const paused = !timerAnchor.playing && Boolean(track);
+      const visibility = settings.hideOnPause && paused ? 'hidden' : 'visible';
+      if (listEl.style.visibility !== visibility) listEl.style.visibility = visibility;
+
+      if (index === lastIndex && !force) return;
+      lastIndex = index;
+      const lineHeight = settings.lineHeightPx;
+      // Before the first line, show line 0 in the centre so the plate is filled.
+      const effective = index < 0 ? 0 : index;
+      const shift = effective * lineHeight;
+      listEl.style.transform = `translateY(${-shift}px)`;
+
+      const items = listEl.querySelectorAll('li.line');
+      items.forEach((li) => {
+        const i = Number(li.dataset.index);
+        if (!Number.isFinite(i)) return;
+        li.classList.toggle('active', i === index);
+        li.classList.toggle('idle', i !== index);
+        li.classList.toggle('lead', index < 0 && i === 0);
+      });
+    }
+
+    function updateNotice() {
+      const showPlate = lines.length === 0;
+      noticeEl.classList.toggle('show', showPlate);
+      if (!showPlate) return;
+
+      if (status === 'searching') {
+        noticeTitleEl.textContent = track ? track.title : 'Searching…';
+        noticeHintEl.textContent = 'looking for lyrics';
+      } else if (status === 'notfound') {
+        noticeTitleEl.textContent = track ? track.title : 'No lyrics';
+        // The fallback option can deliberately leave this blank until the next
+        // song rather than showing a low-confidence match.
+        noticeHintEl.textContent = blankUntilNextTrack
+          ? 'no confident lyrics for this track'
+          : 'no lyrics found for this track';
+      } else if (status === 'instrumental') {
+        noticeTitleEl.textContent = track ? track.title : 'Instrumental';
+        noticeHintEl.textContent = '';
+      } else if (status === 'bridge-down') {
+        noticeTitleEl.textContent = 'Waiting for smtc-bridge';
+        noticeHintEl.textContent = 'start SMTC-Bridge, then this fills in automatically';
+      } else if (!track) {
+        noticeTitleEl.textContent = 'Nothing playing';
+        noticeHintEl.textContent = 'play something in your music app';
+      } else {
+        noticeTitleEl.textContent = track.title;
+        noticeHintEl.textContent = 'loading lyrics…';
+      }
+    }
+
+    function updateProgress(playback) {
+      // The bar is opt-in via ?progress=1 from the OBS setup page.
+      if (!SHOW_PROGRESS || !playback || !playback.durationMs) {
+        progressEl.classList.remove('show');
+        return;
+      }
+      progressEl.classList.add('show');
+      const pct = Math.max(0, Math.min(100, (playback.positionMs / playback.durationMs) * 100));
+      progressBarEl.style.width = `${pct}%`;
+    }
+
+    function updateDebug() {
+      if (!SHOW_DEBUG) return;
+      debugEl.textContent = [
+        `ws ${socketState}`,
+        `status ${status}`,
+        `lines ${lines.length}`,
+        `idx ${lastIndex}`,
+        `pos ${(currentPositionMs() / 1000).toFixed(1)}s`,
+        `off ${offsetMs}ms`,
+        `ticks ${tickCount}`,
+        track ? `${track.title} — ${track.artist}` : 'no track',
+      ].join('\n');
+    }
+
+    /* ------------------------------ websocket ------------------------------ */
+
+    let socketState = 'connecting';
+    let socket = null;
+
+    function setSocketState(next) {
+      socketState = next;
+      updateDebug();
+    }
+
+    function connect() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      socket = new WebSocket(`${protocol}//${location.host}/ws?role=overlay`);
+      setSocketState('connecting');
+
+      socket.onopen = () => setSocketState('open');
+      socket.onclose = () => {
+        setSocketState('closed');
+        setTimeout(connect, 1500);
+      };
+      socket.onerror = () => setSocketState('error');
+      socket.onmessage = (event) => {
+        let message;
+        try { message = JSON.parse(event.data); } catch { return; }
+        if (message.type === 'hello') return;
+        handleState(message);
+      };
+    }
+
+    function handleState(message) {
+      // Apply presentation settings first: buildLines() bakes them into the DOM.
+      if (message.settings) applySettings(message.settings);
+
+      const changedDocument = Boolean(message.lyrics?.lines);
+      const signatureNeedsRebuild = buildNeeded();
+      if (changedDocument) lines = message.lyrics.lines;
+
+      status = message.lyrics?.status ?? message.status ?? 'idle';
+      track = message.track ?? null;
+      offsetMs = message.lyrics?.offsetMs ?? 0;
+      blankUntilNextTrack = Boolean(message.lyrics?.blankUntilNextTrack);
+
+      if (changedDocument || signatureNeedsRebuild) buildLines();
+
+      // Re-anchor from the server's numbers so we cannot drift.
+      if (message.playback) {
+        timerAnchor = {
+          positionMs: Number(message.playback.positionMs) || 0,
+          at: performance.now(),
+          playing: Boolean(message.playback.playing),
+        };
+      }
+
+      updateNotice();
+      updateProgress(message.playback);
+      render(true);
+      updateDebug();
+    }
+
+    let builtSettingsSignature = '';
+    function buildNeeded() {
+      const signature = [
+        lines.length,
+        settings.showTranslation,
+        settings.translationAsMain,
+        settings.uppercase,
+        settings.showPlaceholder,
+        settings.visibleLines,
+      ].join('|');
+      if (signature !== builtSettingsSignature) {
+        builtSettingsSignature = signature;
+        return true;
+      }
+      return false;
+    }
+
+    /* --------------------------------- loop --------------------------------- */
+
+    /**
+     * Timing loop.
+     *
+     * Deliberately a timer, NOT requestAnimationFrame. Chromium suspends rAF for
+     * a page that is not actively rendering, which is exactly what an OBS browser
+     * source becomes once the OBS window loses focus — the lyrics would freeze
+     * until you clicked back into OBS. setInterval keeps firing in that state, so
+     * the active line stays in sync no matter what has focus.
+     *
+     * Line-height changes are still smooth because the transform has a CSS
+     * transition, and the marquee runs as a CSS animation on the compositor.
+     */
+    const TICK_MS = 50;
+    let tickCount = 0;
+    let lastTickWall = performance.now();
+
+    function tick() {
+      tickCount += 1;
+      lastTickWall = performance.now();
+      render(false);
+      updateDebug();
+    }
+
+    // A single interval drives updates. `visibilitychange` and a slow safety
+    // interval make sure we resync immediately after being backgrounded, and
+    // recover if a browser ever does drop the main timer.
+    const mainTimer = setInterval(tick, TICK_MS);
+    const safetyTimer = setInterval(() => {
+      // The main interval should have run many times since the last tick; if it
+      // has not, it was throttled or dropped, so run one now.
+      if (performance.now() - lastTickWall > TICK_MS * 4) tick();
+    }, 1000);
+
+    document.addEventListener('visibilitychange', () => {
+      // Re-anchor nothing here: `timerAnchor` is wall-clock based and keeps
+      // advancing on its own. A forced render snaps the carousel to the right
+      // line the instant the source becomes visible again.
+      render(true);
+    });
+
+    const resizeObserver = new ResizeObserver(() => {
+      measureScroll();
+      render(true);
+    });
+    resizeObserver.observe(document.getElementById('viewport'));
+
+    applySettings(settings);
+    buildLines();
+    updateNotice();
+    connect();
+    tick();
+
+    // Recolour the debug tag when the socket drops, so a broken OBS source is
+    // obvious at a glance instead of silently showing stale lyrics.
+    setInterval(() => {
+      debugEl.style.color = socketState === 'open' ? '#4cd137' : '#ff9f43';
+    }, 1000);
+
+    // Exposed so the control panel / OBS "Refresh" can confirm the loop is live.
+    window.__chorus = {
+      ticks: () => tickCount,
+      state: () => ({ socketState, status, lines: lines.length, lineIndex: lastIndex, tickCount }),
+    };
+  </script>
+</body>
+</html>
