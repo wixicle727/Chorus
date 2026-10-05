@@ -132,7 +132,7 @@ function Start-ChorusServer {
   $node = (Get-Command node.exe -ErrorAction SilentlyContinue)
   if (-not $node) {
     [System.Windows.Forms.MessageBox]::Show(
-      "Node.js was not found on your PATH.`n`nInstall Node.js 20 or newer, then restart Chorus.",
+      "Node.js was not found on your PATH.`n`nInstall Node.js 22 or newer, then restart Chorus.",
       'Chorus', 'OK', 'Error') | Out-Null
     return $false
   }

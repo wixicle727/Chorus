@@ -170,20 +170,19 @@ section('WebSocket heartbeat');
   // page can reply late, and being dropped would also stall the lyrics.
   //
   // This deliberately does NOT answer pings, to prove the server tolerates silence.
-  //
-  // `collectMessages` uses Node's built-in WebSocket when available and otherwise
-  // a minimal client of our own, because the global only exists from Node 21 and
-  // Node 20 is a supported version — calling `new WebSocket(...)` directly made
-  // this crash on Node 20 in CI.
   const health = await (await fetch(`${BASE}/api/health`)).json();
   ok('server is up for heartbeat checks', health.ok === true);
 
-  const { messages, client } = await collectMessages(`${BASE.replace('http', 'ws')}/ws?role=overlay`, {
+  const { messages, error } = await collectMessages(`${BASE.replace('http', 'ws')}/ws?role=overlay`, {
     waitMs: 1500,
   });
   const gotHello = messages.some((m) => m.type === 'hello');
   const gotState = messages.some((m) => m.type === 'state');
-  ok(`an overlay client completes the handshake and receives state (${client} client)`, gotHello && gotState, JSON.stringify({ gotHello, gotState, received: messages.length }));
+  ok(
+    'an overlay client completes the handshake and receives state',
+    gotHello && gotState,
+    error ?? JSON.stringify({ gotHello, gotState, received: messages.length }),
+  );
 }
 
 section('API surface');

@@ -13,7 +13,7 @@ where node >nul 2>nul
 if errorlevel 1 (
   echo.
   echo   Node.js was not found on your PATH.
-  echo   Install Node.js 20 or newer from https://nodejs.org/ and try again.
+  echo   Install Node.js 22 or newer from https://nodejs.org/ and try again.
   echo.
   pause
   exit /b 1

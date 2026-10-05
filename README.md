@@ -11,7 +11,7 @@ original lyrics by title and artist across four platforms, and renders a
 transparent, auto-scrolling lyrics page you drop into OBS as a Browser Source.
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?logo=windows&logoColor=white)](https://github.com/wixicle727/Chorus)
-[![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Node](https://img.shields.io/badge/node-%E2%89%A522-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](https://github.com/wixicle727/Chorus)
 [![OBS](https://img.shields.io/badge/OBS-Browser%20Source-302E31?logo=obsstudio&logoColor=white)](https://obsproject.com/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -467,7 +467,7 @@ test now.
 ## Requirements
 
 - **Windows 10/11** — SMTC is a Windows feature
-- **Node.js 20+** — developed and verified on Node 22
+- **Node.js 22+** — developed and verified on Node 22
 - **smtc-bridge** running on `127.0.0.1:5000`, and your music app publishing a media
   session
 - **OBS Studio** for the overlay (any version with Browser Source)

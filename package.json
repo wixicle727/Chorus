@@ -34,7 +34,7 @@
     "test:ui": "node test/ui.js"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "os": [
     "win32"
