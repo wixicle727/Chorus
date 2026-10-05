@@ -144,7 +144,7 @@ jobs:
           ## Requirements
 
           - Windows 10 or 11
-          - [Node.js](https://nodejs.org/) 20 or newer
+          - [Node.js](https://nodejs.org/) 22 or newer
           - [smtc-bridge](https://github.com/nuttylmao/smtc-bridge) running on port 5000
 
           ## Install
