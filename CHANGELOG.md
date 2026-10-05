@@ -7,6 +7,43 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-10-06
+
+### Fixed
+
+- **Song titles containing `!` or `@` are no longer discarded.** The stream-title
+  filter tested for a bare `[!！]\w{2,}`, so any song with an exclamation mark
+  followed by letters was thrown away as if it were a Twitch chat-command title.
+  `!NVADE SHOW!` by RAISE A SUILEN was dropped before lyrics were ever searched,
+  and the overlay showed nothing — indistinguishable from a lyrics failure.
+
+  Detection now requires a real stream signal:
+
+  - a URL in the title
+  - two or more chat commands, or one at the very end of the title
+  - explicit streaming vocabulary (`LIVE NOW`, `twitch`, `sub goal`, …)
+  - a broadcast banner with repeated emoji
+
+  A stray exclamation mark or an `@` inside a word is no longer enough, so
+  `!NVADE SHOW!`, `BANG!` and `P@ssword` survive while the real
+  `!skinplace !h1 !discord !socials` tab is still filtered out.
+
+### Added
+
+- **15 regression checks for stream detection**, covering both directions: known
+  song titles are kept, and genuine stream titles are still rejected.
+
+### Changed
+
+- **README rewritten** — centred header with badges (platform, Node, zero
+  dependencies, OBS, license), a table of contents, GitHub alert callouts, and
+  collapsible sections for the deeper explanations.
+
+### Documentation
+
+- Corrected the test counts: 119 logic checks, 15 engine checks and 82 UI checks
+  (216 total).
+
 ## [1.0.0] — 2026-10-05
 
 First release.
@@ -52,14 +89,6 @@ First release.
   logic (119); engine timing against a simulated smtc-bridge (15); and pages, DOM
   contract, theme tokens and the JSON API (82).
 
-### Fixed
-
-- **Titles containing `!` or `@` are no longer discarded as streams.** The
-  stream filter matched any `!word`, so a song such as `!NVADE SHOW!` was dropped
-  and the overlay showed nothing — indistinguishable from a lyrics failure. Stream
-  detection now needs repeated chat commands, explicit streaming vocabulary, or a
-  URL, and ignores a stray exclamation mark or `@`.
-
 ### Notes
 
 - Windows only, because SMTC is a Windows feature.
@@ -67,5 +96,6 @@ First release.
 - Lyrics are fetched from public endpoints using only the track title and artist.
   No account, no API key, no telemetry.
 
-[Unreleased]: https://github.com/wixicle727/Chorus/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/wixicle727/Chorus/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/wixicle727/Chorus/releases/tag/v1.1.0
 [1.0.0]: https://github.com/wixicle727/Chorus/releases/tag/v1.0.0
