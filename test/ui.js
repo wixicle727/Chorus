@@ -11,6 +11,8 @@
  * Requires a running server; see test/run.js for the logic tests.
  */
 
+import { collectMessages } from './helpers/ws-client.js';
+
 const args = process.argv.slice(2);
 const baseIndex = args.indexOf('--base');
 const BASE = baseIndex >= 0 && args[baseIndex + 1] ? args[baseIndex + 1] : `http://127.0.0.1:${process.env.PORT ?? 6727}`;
@@ -166,32 +168,22 @@ section('WebSocket heartbeat');
 {
   // A single missed pong must not disconnect the overlay; a backgrounded OBS
   // page can reply late, and being dropped would also stall the lyrics.
-  const wsSource = await (await fetch(`${BASE}/api/health`)).json();
-  ok('server is up for heartbeat checks', wsSource.ok === true);
+  //
+  // This deliberately does NOT answer pings, to prove the server tolerates silence.
+  //
+  // `collectMessages` uses Node's built-in WebSocket when available and otherwise
+  // a minimal client of our own, because the global only exists from Node 21 and
+  // Node 20 is a supported version — calling `new WebSocket(...)` directly made
+  // this crash on Node 20 in CI.
+  const health = await (await fetch(`${BASE}/api/health`)).json();
+  ok('server is up for heartbeat checks', health.ok === true);
 
-  const protocol = BASE.replace('http', 'ws');
-  const result = await new Promise((resolve) => {
-    const socket = new WebSocket(`${protocol}/ws?role=overlay`);
-    let gotHello = false;
-    let gotState = false;
-    // Deliberately do NOT answer pings, to prove the server tolerates silence.
-    socket.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      if (message.type === 'hello') gotHello = true;
-      if (message.type === 'state') gotState = true;
-    };
-    socket.onerror = () => resolve({ ok: false, reason: 'socket error' });
-    socket.onclose = (e) => resolve({ ok: false, reason: `closed early code=${e.code}` });
-    setTimeout(() => {
-      try {
-        socket.close();
-      } catch {
-        /* ignore */
-      }
-      resolve({ ok: gotHello && gotState, gotHello, gotState });
-    }, 2500);
+  const { messages, client } = await collectMessages(`${BASE.replace('http', 'ws')}/ws?role=overlay`, {
+    waitMs: 1500,
   });
-  ok('an overlay client completes the handshake and receives state', result.ok, JSON.stringify(result));
+  const gotHello = messages.some((m) => m.type === 'hello');
+  const gotState = messages.some((m) => m.type === 'state');
+  ok(`an overlay client completes the handshake and receives state (${client} client)`, gotHello && gotState, JSON.stringify({ gotHello, gotState, received: messages.length }));
 }
 
 section('API surface');
