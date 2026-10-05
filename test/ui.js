@@ -30,6 +30,25 @@ const ok = (name, condition, detail = '') => {
 };
 const section = (t) => console.log(`\n\u001b[1m${t}\u001b[0m`);
 
+/**
+ * Report a crash legibly.
+ *
+ * These are registered before the first `await`, because the suite body runs at
+ * module top level and cannot be wrapped in try/catch. Without them a failure
+ * exits with a bare non-zero code once the stack has scrolled past, which is all
+ * CI showed.
+ */
+process.on('uncaughtException', (err) => {
+  console.error(`\n\u001b[31mSuite crashed after ${pass} passed, ${fail} failed\u001b[0m`);
+  console.error(`  ${err?.stack ?? err}`);
+  process.exit(1);
+});
+process.on('unhandledRejection', (err) => {
+  console.error(`\n\u001b[31mSuite crashed on an unhandled rejection after ${pass} passed, ${fail} failed\u001b[0m`);
+  console.error(`  ${err?.stack ?? err}`);
+  process.exit(1);
+});
+
 const get = async (p) => {
   const r = await fetch(BASE + p);
   return { status: r.status, type: r.headers.get('content-type'), text: await r.text() };
@@ -293,3 +312,4 @@ if (fail === 0) console.log(`\u001b[32mAll ${pass} checks passed\u001b[0m`);
 else console.log(`\u001b[31m${fail} failed\u001b[0m, ${pass} passed`);
 console.log(`${'─'.repeat(56)}\n`);
 process.exit(fail === 0 ? 0 : 1);
+
