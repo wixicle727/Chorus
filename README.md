@@ -431,6 +431,9 @@ line-accurate rather than frame-accurate even with a cooperative player.
 - Lyrics are fetched from public endpoints using only the track title and
   artist. Nothing else about your machine leaves the machine.
 
+### Known Issue
+- Not working with foobar2000
+
 ## Credits
 
 Built on the ideas and interfaces of three projects:
