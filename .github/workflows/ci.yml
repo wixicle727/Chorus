@@ -56,19 +56,31 @@ jobs:
       - name: Engine timing tests
         run: node test/engine.js
 
-      - name: Start the server
+      # The server is started and tested inside ONE step on purpose. GitHub Actions
+      # reaps a step's process tree when the step ends, so a server launched in an
+      # earlier step cannot be relied on to still be listening.
+      - name: UI and API tests
         shell: pwsh
         run: |
           Start-Process -FilePath node -ArgumentList @('src/index.js','--no-open') -NoNewWindow
           $up = $false
-          for ($i = 0; $i -lt 40; $i++) {
+          for ($i = 0; $i -lt 60; $i++) {
             Start-Sleep -Milliseconds 500
             try { Invoke-RestMethod 'http://127.0.0.1:6727/api/health' -TimeoutSec 2 | Out-Null; $up = $true; break } catch { }
           }
           if (-not $up) { Write-Error 'server did not start'; exit 1 }
 
-      - name: UI and API tests
-        run: node test/ui.js
+          # Tee the output into the step summary so a failure is readable from the
+          # run page and the API, instead of a bare "exit code 1".
+          node test/ui.js 2>&1 | Tee-Object -FilePath ui-test.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            "### UI test output" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            Get-Content ui-test.log -Tail 120 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+          exit $code
 
       - name: Prepare the tray/log launcher for signing checks
         shell: pwsh
