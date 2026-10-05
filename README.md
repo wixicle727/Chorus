@@ -408,9 +408,7 @@ scroll**, because the position stays at `0:00` forever. The control panel detect
 this and shows an orange `no timeline` tag plus an explanation, so it does not look
 like a lyrics problem.
 
-- **foobar2000** — install the [`foo_mediacontrol`](https://www.foobar2000.org/components/view/foo_mediacontrol)
-  component and restart foobar2000. (The Microsoft Store build reports metadata
-  but not the timeline.)
+- **foobar2000** — does not currently work due to foobar not sending timeline info to SMTC Bridge
 - **Other players** — enable "system media controls" / "SMTC" in the player's own
   settings if it has such an option.
 
@@ -430,9 +428,6 @@ line-accurate rather than frame-accurate even with a cooperative player.
   and Windows already gives us the metadata.
 - Lyrics are fetched from public endpoints using only the track title and
   artist. Nothing else about your machine leaves the machine.
-
-### Known Issue
-- Not working with foobar2000
 
 ## Credits
 
