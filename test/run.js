@@ -20,7 +20,7 @@ import {
   formatDuration,
 } from '../src/core/utils.js';
 import { scoreCandidate, isCandidateAcceptable, createRegistry, resolveLyrics, providerLabel } from '../src/core/match.js';
-import { selectSession, BridgeClient, PlaybackStatus } from '../src/core/bridge.js';
+import { selectSession, BridgeClient, PlaybackStatus, looksLikeStreamTitle } from '../src/core/bridge.js';
 import { PROVIDERS, plainToEstimatedLrc } from '../src/providers/index.js';
 
 const OFFLINE_ONLY = process.argv.includes('--offline');
@@ -336,6 +336,55 @@ const CONFIG = { source: { primaryPlatform: 'spotify', maxTrackSeconds: 3600, st
 {
   const sessions = [playing('Spotify.exe', 'spotify', 'Song', { playbackStatus: PlaybackStatus.PAUSED })];
   check('a paused primary platform still wins when alone', selectSession(sessions, CONFIG)?.appId === 'Spotify.exe');
+}
+
+/**
+ * Stream detection must not eat real song titles.
+ *
+ * This regressed once: the rule was a bare `[!！]\w{2,}`, so `!NVADE SHOW!` by
+ * RAISE A SUILEN was discarded as if it were a Twitch chat-command title and the
+ * overlay showed nothing — indistinguishable from a lyrics failure.
+ */
+section('Stream-title detection');
+
+{
+  const SONGS = [
+    ['!NVADE SHOW!', 'the reported track'],
+    ['BANG!', 'song with an exclamation mark'],
+    ['Everybody Talks!', 'ordinary song'],
+    ['アイカツ! ミュージックアワー', 'CJK song with an exclamation mark'],
+    ['Wow! Amazing!', 'several exclamations, no commands'],
+    ['P@ssword', 'an @ inside a word is not a handle'],
+    ['!!!', 'punctuation only'],
+    ['Some Video - YouTube', 'a normal browser title'],
+  ];
+  for (const [title, why] of SONGS) {
+    check(`song title kept: ${why}`, looksLikeStreamTitle(title) === false, JSON.stringify(title));
+  }
+
+  const STREAMS = [
+    ['🍤 NEW WEEK UPON US 🍤 YOU WILL HAVE SO MUCH FUN 🍤 !skinplace !h1 !discord !socials 🍤', 'the real Twitch tab'],
+    ['Minecraft !drops', 'a command at the end'],
+    ['Chill stream !discord !socials', 'command spam'],
+    ['LIVE NOW - playing games', 'live vocabulary'],
+    ['Watch live: finals', 'watch live'],
+    ['🔴 LIVE 🔴 ranked grind', 'red-circle live banner'],
+  ];
+  for (const [title, why] of STREAMS) {
+    check(`stream rejected: ${why}`, looksLikeStreamTitle(title) === true, JSON.stringify(title).slice(0, 60));
+  }
+
+  // End to end: the song must survive selection even with a stream playing.
+  const sessions = [
+    playing('chrome', 'browser', 'Some stream'),
+    playing('Spotify.exe', 'spotify', '!NVADE SHOW!'),
+  ];
+  const chosen = selectSession(sessions, CONFIG);
+  check(
+    'a song with "!" in the title is still selected over a stream',
+    chosen?.title === '!NVADE SHOW!',
+    chosen?.title,
+  );
 }
 
 /* ------------------------------------------------------------------ *

@@ -32,7 +32,8 @@ Run `npm start` in another terminal before `test:ui`. The suite defaults to port
 **Please add tests with behaviour changes.** The suites exist because most bugs
 here are invisible until a specific track or player hits them — a pause that was
 never broadcast, an artist separator that did not match a player's convention,
-untimed lyrics being discarded. Each of those has a regression test now.
+untimed lyrics being discarded, a song title containing `!` being mistaken for a
+stream. Each of those has a regression test now.
 
 CI runs the offline, engine and UI suites on Node 20 and 22. The live lookups are
 excluded there on purpose: they hit third-party APIs and would be both flaky and

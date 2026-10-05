@@ -48,9 +48,17 @@ First release.
   restart and quit.
 - **Global lyric offset**, adjustable live from the panel or the tray.
 - **On-disk cache** of resolved lyrics, plus play history and a cache browser.
-- **201 automated checks** across three suites: parsing, scoring and selection
-  logic (104); engine timing against a simulated smtc-bridge (15); and pages, DOM
+- **216 automated checks** across three suites: parsing, scoring and selection
+  logic (119); engine timing against a simulated smtc-bridge (15); and pages, DOM
   contract, theme tokens and the JSON API (82).
+
+### Fixed
+
+- **Titles containing `!` or `@` are no longer discarded as streams.** The
+  stream filter matched any `!word`, so a song such as `!NVADE SHOW!` was dropped
+  and the overlay showed nothing — indistinguishable from a lyrics failure. Stream
+  detection now needs repeated chat commands, explicit streaming vocabulary, or a
+  URL, and ignores a stray exclamation mark or `@`.
 
 ### Notes
 

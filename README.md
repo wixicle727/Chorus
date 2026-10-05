@@ -414,11 +414,11 @@ npm run test:engine   # engine timing against a fake smtc-bridge
 npm run test:ui       # pages, DOM contract, theme tokens and the JSON API
 ```
 
-**201 checks** across three suites:
+**216 checks** across three suites:
 
 | Suite | Checks | Covers |
 |---|---|---|
-| `test/run.js` | 104 | LRC parsing (fraction widths, multi-timestamp lines, offset headers, word tags, CRLF), artist splitting, untimed lyrics → estimated timings, text normalisation, scoring, the title gate, version demotion, score-first selection, the fallback policy, session selection, smtc-bridge payloads |
+| `test/run.js` | 119 | LRC parsing (fraction widths, multi-timestamp lines, offset headers, word tags, CRLF), artist splitting, untimed lyrics → estimated timings, text normalisation, scoring, the title gate, version demotion, score-first selection, the fallback policy, session selection, **stream-title detection** (so a song called `!NVADE SHOW!` is not mistaken for a Twitch tab), smtc-bridge payloads |
 | `test/engine.js` | 15 | Runs the real engine against a fake smtc-bridge: pausing is broadcast, position then freezes, no socket spam, resuming is broadcast, `refresh` bypasses a cached negative result |
 | `test/ui.js` | 82 | Every page and asset served, every element the panel script looks up exists, overlay carousel/transparency contract, **no `requestAnimationFrame` in the overlay loop**, an overlay client ignoring pings stays connected, JSON API, and that no colour uses the Windows `#AARRGGBB` byte order |
 

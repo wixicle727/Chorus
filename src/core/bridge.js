@@ -129,6 +129,41 @@ export function isPlaying(session) {
 }
 
 /**
+ * Does this title look like a live stream, video page or browser tab rather than
+ * a track?
+ *
+ * Used to stop a paused Twitch tab hijacking the overlay. It has to be careful:
+ * a music library contains titles full of exclamation marks and @ signs —
+ * `!NVADE SHOW!`, `BANG!`, `P@ssword` — and an over-eager rule silently discards
+ * real songs, which looks exactly like a lyrics bug.
+ *
+ * So a single `!word` or `@handle` is NOT enough. A title is only rejected when
+ * the stream signals are strong and repeated.
+ */
+export function looksLikeStreamTitle(title) {
+  const text = String(title ?? '');
+  if (!text.trim()) return true;
+
+  // A URL in the title is decisive on its own.
+  if (/https?:\/\/|www\./i.test(text)) return true;
+
+  // Chat-command spam: `!skinplace !h1 !discord !socials` and friends. Requires
+  // several, or one repeated, so a song title with an exclamation mark survives.
+  const commandTokens = text.match(/[!！][a-z0-9_]{2,}/gi) ?? [];
+  if (commandTokens.length >= 2) return true;
+  if (commandTokens.length === 1 && /[!！][a-z0-9_]{2,}\s*$/i.test(text)) return true;
+
+  // Explicit streaming vocabulary, typically bracketed on a browser tab.
+  const STREAM_WORDS = /\b(live\s*(now|stream)|streaming|twitch|youtube\s*live|watch\s*live|just\s*chatting|subathon|!?(?:drops?\s*enabled)|new\s*follower|donation|sub\s*goal|raid)\b/i;
+  if (STREAM_WORDS.test(text)) return true;
+
+  // A calendar-style broadcast banner: `🍤 NEW WEEK UPON US 🍤 ... 🍤`.
+  if ((text.match(/[🍤🔴🎮🎉✨⭐]/gu) ?? []).length >= 2) return true;
+
+  return false;
+}
+
+/**
  * A track is a plausible music track if it has a title and does not look like a
  * live stream, video, or browser tab. A paused 4-hour Twitch tab must never win
  * over the music app the user actually configured.
@@ -141,8 +176,7 @@ function isPlausibleTrack(session, maxTrackSeconds) {
   // No known duration on a playing source means it is a live stream or a tab,
   // not a track: SMTC reports EndTime for real music.
   if (session.durationMs <= 0 && isPlaying(session)) return false;
-  // Stream pages put URLs, @handles, and !commands in the media title.
-  if (/https?:\/\/|www\.|[!！]\w{2,}|@[a-z0-9_]{2,}/i.test(session.title)) return false;
+  if (looksLikeStreamTitle(session.title)) return false;
   return true;
 }
 
