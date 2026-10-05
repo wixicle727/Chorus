@@ -1,5 +1,7 @@
 # Chorus
 
+![Chrous's UI](https://i.ibb.co/MDpTQMV4/download-1.png)
+
 Live lyrics for OBS, driven by whatever is playing in Windows.
 
 Reads the current track from **Windows System Media Transport Controls** (via
