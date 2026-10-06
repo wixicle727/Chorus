@@ -482,7 +482,6 @@ and WinForms, both included in Windows 10/11 — nothing extra to install.
 ### Players that do not report a timeline
 
 A player can publish a track to Windows **without** a track length or position.
-foobar2000 does exactly this unless its media-control component is installed.
 
 The symptom is specific and worth recognising: **lyrics are found but never
 scroll**, because the position stays at `0:00` forever.
@@ -491,11 +490,7 @@ scroll**, because the position stays at `0:00` forever.
 > Chorus detects this and shows an orange `no timeline` tag with an explanation, so
 > it does not look like a lyrics problem.
 
-- **foobar2000** — install the
-  [`foo_mediacontrol`](https://www.foobar2000.org/components/view/foo_mediacontrol)
-  component and restart foobar2000. (The Microsoft Store build reports metadata but
-  not the timeline.)
-- **Other players** — enable "system media controls" / "SMTC" in the player's own
+- **For those players** — enable "system media controls" / "SMTC" in the player's own
   settings if it has such an option.
 
 Windows itself only exposes position at roughly one-second granularity, so sync is
