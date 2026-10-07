@@ -88,6 +88,37 @@ for (const [path, expectType, needle] of [
   );
 }
 
+section('Brand assets');
+{
+  // The icons are what the tray, the browser tab and the README all point at. They
+  // are binary, so nothing else in the suite would notice them going missing or
+  // being served as the wrong type.
+  for (const [path, mime] of [
+    ['/assets/chorus.ico', 'image/'],
+    ['/assets/chorus-32.png', 'image/'],
+    ['/assets/chorus-16.png', 'image/'],
+    ['/assets/chorus-128.png', 'image/'],
+    ['/assets/chorus-mark-circle.png', 'image/'],
+  ]) {
+    const r = await get(path);
+    ok(`${path} served as an image`, r.status === 200 && (r.type ?? '').startsWith(mime), `status=${r.status} type=${r.type}`);
+  }
+
+  // The .ico must carry multiple sizes, or Windows scales one bitmap and the tray
+  // goes soft. Byte 4 of the ICONDIR is the image count.
+  const ico = await fetch(BASE + '/assets/chorus.ico');
+  const bytes = Buffer.from(await ico.arrayBuffer());
+  const imageCount = bytes.length > 6 ? bytes.readUInt16LE(4) : 0;
+  ok('the .ico is multi-size', imageCount >= 4, `${imageCount} sizes embedded`);
+
+  // Both pages must actually reference an icon, or the tab shows a blank page glyph.
+  const control = (await get('/control')).text;
+  const overlay = (await get('/overlay')).text;
+  ok('the control page links an icon', /<link[^>]+rel="icon"/.test(control));
+  ok('the overlay page links an icon', /<link[^>]+rel="icon"/.test(overlay));
+  ok('the icon link points at an asset that exists', control.includes('/assets/chorus.ico'));
+}
+
 section('Theme tokens');
 {
   const css = (await get('/css/control.css')).text;

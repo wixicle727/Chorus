@@ -7,10 +7,15 @@
  *   node src/index.js --no-open    do not open the control panel in a browser
  *   node src/index.js --tray       also show the system tray icon (Windows)
  *   node src/index.js --background start hidden and keep no console
+ *   node src/index.js --no-bridge  do not start the bundled SMTC bridge
  *   node src/index.js --quit       stop a server already running on the port
  *
  * Three pieces:
- *   smtc-bridge (http://127.0.0.1:5000)  ->  this engine  ->  OBS browser source
+ *   built-in SMTC bridge  ->  this engine  ->  OBS browser source
+ *   (127.0.0.1:5000)          (port 6727)
+ *
+ * The bridge is bundled and started by Chorus. If a stock smtc-bridge is already
+ * running on the port it is adopted instead, so either can be used.
  *
  * The OBS browser source points at http://127.0.0.1:<port>/overlay
  * The control panel is     http://127.0.0.1:<port>/control
@@ -26,6 +31,7 @@ import { Engine } from './core/engine.js';
 import { Store } from './core/store.js';
 import { createServer } from './core/server.js';
 import { getAutostartStatus } from './core/autostart.js';
+import { BridgeProcess } from './core/bridge-process.js';
 import { log, openLogFile, getLogPath } from './core/log.js';
 
 const args = process.argv.slice(2);
@@ -91,6 +97,19 @@ async function quitRunningInstance() {
 const store = new Store(config);
 const engine = new Engine(config, store);
 
+/**
+ * The bundled SMTC bridge, so Chorus needs no separately-installed program.
+ *
+ * It is started before the engine so the first poll finds something listening, and
+ * stopped on shutdown so the two share one lifecycle. If a bridge (the stock one,
+ * or a previous Chorus) already owns the port it is adopted instead of replaced.
+ */
+const bridge = new BridgeProcess({
+  port: config.smtc?.bridge?.port ?? 5000,
+  pollMs: config.smtc?.pollIntervalMs ?? 500,
+  log,
+});
+
 const getConfig = () => config;
 const setConfig = (next) => {
   config = next;
@@ -104,7 +123,7 @@ const api = createServer({
   onShutdown: () => shutdown('requested'),
 });
 
-function banner(address) {
+function banner(address, bridgeStatus = {}) {
   const port = address.port;
   const base = `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}`;
   if (quiet) {
@@ -112,6 +131,16 @@ function banner(address) {
     log.tagged(`Chorus listening on ${base} (overlay ${base}/overlay)`);
     return base;
   }
+  // Say plainly where the track comes from, since that is the usual thing to get
+  // wrong when nothing shows up.
+  const bridgeLine = {
+    managed: `built-in (port ${config.smtc.bridge?.port ?? 5000}, started by Chorus)`,
+    external: `external (found already running on ${config.smtc.url})`,
+    starting: 'starting...',
+    failed: `unavailable - ${bridgeStatus.detail ?? 'unknown reason'}`,
+    disabled: 'disabled',
+  }[bridgeStatus.state] ?? 'unknown';
+
   const line = '─'.repeat(64);
   log.info(`\n  ${line}`);
   log.info('   Chorus — live lyrics for OBS, from Windows SMTC');
@@ -119,7 +148,7 @@ function banner(address) {
   log.info(`   OBS browser source   ${base}/overlay`);
   log.info(`   Control panel        ${base}/control`);
   log.info(`  ${line}`);
-  log.info(`   smtc-bridge          ${config.smtc.url}/now-playing`);
+  log.info(`   SMTC bridge          ${bridgeLine}`);
   log.info(`   Primary platform     ${config.source.primaryPlatform}`);
   log.info(`   Lyric sources        ${config.lyrics.enabled.join(', ')}`);
   log.info(`   Data folder          ${store.stats().dataDir}`);
@@ -168,6 +197,8 @@ async function shutdown(reason) {
   shuttingDown = true;
   log.tagged(`Shutting down (${reason})`);
   engine.stop();
+  // Stop the bundled bridge too, but never a foreign one we merely adopted.
+  bridge.stop();
   clearPidFile();
   try {
     await api.close();
@@ -193,11 +224,30 @@ async function main() {
     return;
   }
 
+  // Bring the built-in bridge up first, so the engine's first poll has something to
+  // talk to. Failure here is reported but not fatal: Chorus still starts, and says
+  // "no track" rather than refusing to run.
+  const bridgeWanted = config.smtc?.bridge?.managed !== false && !flag('--no-bridge');
+  let bridgeStatus = { state: 'disabled', detail: 'disabled by configuration' };
+  if (bridgeWanted) {
+    bridgeStatus = await bridge.start();
+  }
+
+  // Keep the source URL pointing at whichever port the bridge is actually on, so a
+  // changed port does not silently leave Chorus talking to nothing.
+  if (bridgeStatus.state === 'managed' || bridgeStatus.state === 'external') {
+    const expect = bridge.url;
+    if (config.smtc.url !== expect) {
+      config = { ...config, smtc: { ...config.smtc, url: expect } };
+    }
+  }
+
   const address = await api.listen(config.server.port, host);
-  const base = banner(address);
+  const base = banner(address, bridgeStatus);
   engine.start();
   writePidFile();
   log.tagged(`Server started (pid ${process.pid}, port ${address.port})`);
+  log.tagged(`SMTC bridge: ${bridgeStatus.state} (${bridgeStatus.detail ?? 'no detail'})`);
 
   // Persist the config once so a first run leaves an editable file behind.
   saveConfig(config);

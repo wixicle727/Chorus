@@ -92,36 +92,81 @@ jobs:
         shell: pwsh
         run: Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
+      - name: Install build tooling
+        shell: pwsh
+        run: |
+          # postject is the only build-time dependency (it injects the SEA blob).
+          # The app itself still ships with zero runtime dependencies.
+          npm ci --no-audit --no-fund
+
+      - name: Build the standalone executable
+        shell: pwsh
+        run: |
+          # Embeds src/ into a copy of node.exe so users install nothing.
+          # web/, assets/ and tools/ are deliberately shipped as real files beside
+          # it (the SMTC bridge is PowerShell and cannot be embedded).
+          npm run build:exe
+
+          if (-not (Test-Path 'build/Chorus/Chorus.exe')) {
+            throw 'Chorus.exe was not produced'
+          }
+          Get-Item 'build/Chorus/Chorus.exe' | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
+
+      - name: Smoke-test the executable
+        shell: pwsh
+        run: |
+          # A build that cannot start is worse than no build, so run it and require
+          # the API to answer before anything is published.
+          $exe = (Resolve-Path 'build/Chorus/Chorus.exe').Path
+          $work = (Resolve-Path 'build/Chorus').Path
+          Start-Process -FilePath $exe -ArgumentList @('--no-open') -WorkingDirectory $work -WindowStyle Hidden
+
+          $up = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Milliseconds 500
+            try {
+              $health = Invoke-RestMethod 'http://127.0.0.1:6727/api/health' -TimeoutSec 2
+              if ($health.name -eq 'chorus') { $up = $true; break }
+            } catch { }
+          }
+          if (-not $up) { throw 'the executable did not answer on /api/health within 30s' }
+          Write-Host 'executable started and answered'
+
+          # The bundled bridge must come up with it.
+          $bridge = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Milliseconds 500
+            try {
+              $b = Invoke-RestMethod 'http://127.0.0.1:5000/health' -TimeoutSec 2
+              if ($b.ok) { $bridge = $true; break }
+            } catch { }
+          }
+          if (-not $bridge) { throw 'the bundled SMTC bridge did not come up on port 5000' }
+          Write-Host "bundled bridge answered (v$($b.app_version))"
+
+          Get-Process Chorus, powershell -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
       - name: Assemble the release archive
         shell: pwsh
         run: |
+          # The exe build already stages everything the release needs into
+          # build/Chorus, including the folders that must sit beside the executable.
           $stage = 'build/Chorus'
-          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          if (-not (Test-Path "$stage/Chorus.exe")) { throw "missing $stage/Chorus.exe" }
+          if (-not (Test-Path "$stage/web/overlay.html")) { throw 'the web folder was not staged' }
+          if (-not (Test-Path "$stage/tools/smtc-bridge/server.ps1")) { throw 'the bundled bridge was not staged' }
 
-          # Source-of-truth paths only. data/ is generated on first run and the
-          # .lnk is machine-specific, so neither is shipped.
-          foreach ($item in @('src','web','launcher','docs','package.json','README.md','CHANGELOG.md','LICENSE','start.bat','.gitignore')) {
-            if (Test-Path $item) {
-              Copy-Item $item -Destination $stage -Recurse -Force
-            } else {
-              Write-Host "skipping missing $item"
-            }
-          }
+          # Runtime data is generated on first run and must never ship.
+          Remove-Item "$stage/data" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item "$stage/.npm-cache" -Recurse -Force -ErrorAction SilentlyContinue
 
-          # No shortcut is shipped. A .lnk stores its target as an absolute path
-          # resolved at creation time, so one generated here would point into the
-          # CI staging directory ("D:\a\Chorus\Chorus\...") and be dead on every
-          # machine that unzipped the archive.
-          #
-          # start.bat is the documented launcher and works from any location,
-          # because it resolves the hidden helper relative to its own folder.
-          Write-Host "Staged release tree:"
+          Write-Host 'Staged release tree:'
           Get-ChildItem $stage -Force | Select-Object Name
 
           $zip = "build/Chorus-${{ steps.version.outputs.value }}.zip"
           Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -Force
           Write-Host "built $zip"
-          Get-Item $zip | Select-Object FullName, Length
+          Get-Item $zip | Select-Object FullName, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
 
       - name: Write release notes from the changelog
         shell: pwsh

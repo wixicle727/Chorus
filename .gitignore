@@ -14,12 +14,15 @@ logs/
 Thumbs.db
 desktop.ini
 
-# Node (the project has no dependencies, but these appear if you add any)
+# Node (postject is a build-time devDependency for the .exe; runtime deps stay at 0)
 node_modules/
 npm-debug.log*
 
-# Release staging, produced by the release workflow
+# Release staging, produced by the release workflow and tools/build
 build/
+
+# npm cache, when a restricted machine has to keep it inside the project
+.npm-cache/
 
 # Local scratch
 *.local

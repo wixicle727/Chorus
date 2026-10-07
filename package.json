@@ -1,6 +1,6 @@
 {
   "name": "chorus",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Chorus — live lyrics for OBS, driven by Windows SMTC (smtc-bridge), with multi-platform original-lyrics lookup.",
   "keywords": [
@@ -28,6 +28,8 @@
     "start": "node src/index.js",
     "start:tray": "node src/index.js --tray",
     "stop": "node src/index.js --quit",
+    "build:exe": "node tools/build/build-exe.mjs",
+    "logo": "python tools/logo/make_logo.py",
     "test": "node test/run.js",
     "test:offline": "node test/run.js --offline",
     "test:engine": "node test/engine.js",
@@ -39,5 +41,7 @@
   "os": [
     "win32"
   ],
-  "dependencies": {}
+  "devDependencies": {
+    "postject": "^1.0.0-alpha.6"
+  }
 }

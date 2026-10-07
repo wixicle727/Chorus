@@ -1,6 +1,6 @@
 <div align="center">
 
-# Chorus 🎵
+<img src="assets/chorus-banner.png" alt="Chorus — live lyrics for OBS, from Windows SMTC" width="720">
 
 ![Chorus's UI](https://i.ibb.co/MDpTQMV4/download-1.png)
 
@@ -17,16 +17,20 @@ transparent, auto-scrolling lyrics page you drop into OBS as a Browser Source.
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ```
-Windows SMTC  →  smtc-bridge  →  Chorus  →  OBS Browser Source
-                 (port 5000)    (port 6727)
+Windows SMTC  →  bundled bridge  →  Chorus  →  OBS Browser Source
+                 (port 5000)        (port 6727)
 ```
 
 </div>
 
 > [!NOTE]
-> No account. No API key. No cloud service. No `npm install`, no build step —
-> unzip and run. Lyrics are fetched from public endpoints using only the track
-> title and artist.
+> No account. No API key. No cloud service. **No Node.js to install** — the release
+> is a single `Chorus.exe`. Lyrics are fetched from public endpoints using only the
+> track title and artist.
+>
+> You do not need [smtc-bridge](https://github.com/nuttylmao/smtc-bridge) either:
+> Chorus ships its own and starts it for you. If you already run the stock bridge,
+> Chorus detects it and uses it instead.
 
 ---
 
@@ -71,25 +75,25 @@ Windows SMTC  →  smtc-bridge  →  Chorus  →  OBS Browser Source
 
 ## Quick start
 
-**1️⃣ Start smtc-bridge** — if it is not already running
+**1️⃣ Download the release and unzip it**
 
-Grab it from [the releases page](https://github.com/nuttylmao/smtc-bridge/releases)
-and run `SMTC-Bridge.exe`. A tray icon appears and it serves
-`http://127.0.0.1:5000/now-playing`. Leave it running.
+Grab `Chorus-<version>.zip` from [the releases page](https://github.com/wixicle727/Chorus/releases)
+and unzip it anywhere. Nothing to install — Node.js is inside `Chorus.exe`.
 
-**2️⃣ Start Chorus**
+**2️⃣ Run `Chorus.exe`**
 
-Double-click **`start.bat`**, or:
+That is the whole step. Chorus starts **its own SMTC bridge** on
+`http://127.0.0.1:5000` and stops it again when you quit, so there is no second
+program to install or keep running.
 
-```bash
-npm start
-```
+A **tray icon** appears near the clock — open the control panel, read the log,
+restart or quit from there. The control panel is at
+<http://127.0.0.1:6727/control>.
 
-`start.bat` runs Chorus hidden in the background and puts a **tray icon** near the
-clock — from there you can open the control panel, read the server log, restart or
-quit. To watch the output in a console instead, use `node src/index.js`.
-
-The control panel lives at <http://127.0.0.1:6727/control>.
+> [!TIP]
+> Already running the stock [smtc-bridge](https://github.com/nuttylmao/smtc-bridge)?
+> Leave it alone. Chorus finds it on the port and uses it instead of starting its
+> own, so nothing about your current setup changes.
 
 **3️⃣ Add the overlay to OBS**
 
@@ -414,13 +418,13 @@ npm run test:engine   # engine timing against a fake smtc-bridge
 npm run test:ui       # pages, DOM contract, theme tokens and the JSON API
 ```
 
-**219 checks** across three suites:
+**224 checks** across three suites:
 
 | Suite | Checks | Covers |
 |---|---|---|
 | `test/run.js` | 119 | LRC parsing (fraction widths, multi-timestamp lines, offset headers, word tags, CRLF), artist splitting, untimed lyrics → estimated timings, text normalisation, scoring, the title gate, version demotion, score-first selection, the fallback policy, session selection, **stream-title detection** (so a song called `!NVADE SHOW!` is not mistaken for a Twitch tab), smtc-bridge payloads |
 | `test/engine.js` | 18 | Runs the real engine against a fake smtc-bridge: pausing is broadcast, position then freezes, no socket spam, resuming is broadcast, `refresh` bypasses a cached negative result, and an idle track still emits a heartbeat |
-| `test/ui.js` | 82 | Every page and asset served, every element the panel script looks up exists, overlay carousel/transparency contract, **no `requestAnimationFrame` in the overlay loop**, an overlay client ignoring pings stays connected, JSON API, and that no colour uses the Windows `#AARRGGBB` byte order |
+| `test/ui.js` | 87 | Every page and asset served, every element the panel script looks up exists, overlay carousel/transparency contract, **no `requestAnimationFrame` in the overlay loop**, an overlay client ignoring pings stays connected, JSON API, that no colour uses the Windows `#AARRGGBB` byte order, and that the brand icons are served and linked |
 
 `npm test` additionally runs live lookups: a Japanese, an English and a Chinese
 track, plus a deliberately unmatchable one, and smoke-tests each provider.
@@ -466,14 +470,21 @@ test now.
 
 ## Requirements
 
-- **Windows 10/11** — SMTC is a Windows feature
-- **Node.js 22+** — developed and verified on Node 22
-- **smtc-bridge** running on `127.0.0.1:5000`, and your music app publishing a media
-  session
+**To use a release build — nothing but Windows.**
+
+- **Windows 10/11** — SMTC is a Windows feature, and the tray icon and auto-start
+  use Windows PowerShell 5.1 and WinForms, both included in Windows
 - **OBS Studio** for the overlay (any version with Browser Source)
 
-The tray icon and Start-with-Windows use Windows PowerShell 5.1 (`powershell.exe`)
-and WinForms, both included in Windows 10/11 — nothing extra to install.
+The SMTC bridge is bundled and started by Chorus, so there is no second program.
+
+**To run or build from source:**
+
+- **Node.js 22+** — developed and verified on Node 22. Only needed if you run
+  `node src/index.js` or build the executable yourself
+- **Python 3 with Pillow** — only to regenerate the logo (`npm run logo`)
+- **`npm install`** — only for `postject`, the single build-time dependency used to
+  build the `.exe`; the app itself has zero runtime dependencies
 
 ---
 
@@ -517,7 +528,9 @@ line-accurate rather than frame-accurate even with a cooperative player.
 Built on the work of three projects:
 
 - [**smtc-bridge**](https://github.com/nuttylmao/smtc-bridge) by nutty — Windows
-  media sessions as a REST API
+  media sessions as a REST API. Chorus bundles its own bridge now, but the API it
+  speaks, and the shape of the data, are this project's design. The stock bridge
+  remains fully supported and is adopted automatically when it is already running.
 - [**tosu-lyrics**](https://github.com/HollisMeynell/tosu-lyrics) by HollisMeynell —
   the three-line lyric carousel and timing model
 - [**AF-Media-Bar**](https://github.com/Fervent-Tempo/AF-Media-Bar) by

@@ -70,28 +70,46 @@ function Write-Log {
 # ------------------------------------------------------------------ tray icon
 
 function New-ChorusIcon {
-  # Drawn at runtime so the project needs no binary assets.
+  # Prefer the generated brand icon. It is the same mark the panel and README use,
+  # and it is already the right sizes for the tray (the .ico carries 16-256 px, so
+  # Windows picks the crisp one instead of scaling a single bitmap).
+  try {
+    $assets = Join-Path (Split-Path -Parent $PSScriptRoot) 'assets'
+    $icoPath = Join-Path $assets 'chorus.ico'
+    if (Test-Path $icoPath) {
+      return (New-Object System.Drawing.Icon($icoPath))
+    }
+    $pngPath = Join-Path $assets 'chorus-32.png'
+    if (Test-Path $pngPath) {
+      $fromPng = New-Object System.Drawing.Bitmap($pngPath)
+      $handle = $fromPng.GetHicon()
+      $icon = [System.Drawing.Icon]::FromHandle($handle).Clone()
+      $fromPng.Dispose()
+      return $icon
+    }
+  } catch {
+    # Fall through to the drawn version: a missing or unreadable asset file must
+    # never leave the user with no tray icon at all.
+  }
+
+  # Fallback: drawn at runtime, so a source checkout with no assets/ still works.
   $size = 32
   $bmp = New-Object System.Drawing.Bitmap($size, $size)
   $g = [System.Drawing.Graphics]::FromImage($bmp)
   $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
   $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAlias
 
-  # Rounded cyan tile.
-  $accent = [System.Drawing.Color]::FromArgb(255, 76, 194, 255)
-  $bg = New-Object System.Drawing.SolidBrush($accent)
-  $g.FillEllipse($bg, 1, 1, $size - 2, $size - 2)
+  # Rounded dark tile with the three-line lyric mark.
+  $tile = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 23, 23, 27))
+  $g.FillEllipse($tile, 1, 1, $size - 2, $size - 2)
 
-  # A music note (two note heads joined by a beam).
-  $dark = [System.Drawing.Color]::FromArgb(255, 8, 24, 34)
-  $note = New-Object System.Drawing.SolidBrush($dark)
-  $g.FillEllipse($note, 8, 19, 8, 6)
-  $g.FillEllipse($note, 17, 16, 8, 6)
-  $g.FillRectangle($note, 14, 8, 2, 13)
-  $g.FillRectangle($note, 23, 6, 2, 13)
-  $g.FillRectangle($note, 14, 6, 11, 3)
+  $idle = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 150, 160, 174))
+  $active = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 76, 194, 255))
+  $g.FillRectangle($idle, 9, 9, 14, 3)
+  $g.FillRectangle($active, 6, 15, 20, 4)
+  $g.FillRectangle($idle, 9, 22, 14, 3)
 
-  $g.Dispose(); $bg.Dispose(); $note.Dispose()
+  $g.Dispose(); $tile.Dispose(); $idle.Dispose(); $active.Dispose()
 
   $handle = $bmp.GetHicon()
   $icon = [System.Drawing.Icon]::FromHandle($handle)

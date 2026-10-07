@@ -132,9 +132,22 @@ export const DEFAULTS = {
     openControlOnStart: false,
   },
   smtc: {
-    // smtc-bridge. GET /now-playing (no trailing slash).
+    // Chorus starts its own bundled bridge on this port by default, so there is no
+    // second program to install. Point this at a stock smtc-bridge (or any other
+    // source serving the same API) to use that instead.
     url: 'http://127.0.0.1:5000',
     pollIntervalMs: 500,
+    /**
+     * The bundled bridge in tools/smtc-bridge.
+     *
+     * managed: Chorus starts and stops it, and adopts anything already listening on
+     * the port instead of fighting over it — so a user running the stock
+     * smtc-bridge keeps working untouched.
+     */
+    bridge: {
+      managed: true,
+      port: 5000,
+    },
   },
   source: {
     // Platform ids are matched by AUMID substring; anything unmatched falls back to "best playing session".
