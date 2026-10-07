@@ -202,14 +202,85 @@ function Test-ServerUp {
 
 function Find-RunningServer {
   # Prefer the pid file: it lets this helper adopt a server it did not start.
+  #
+  # The process name is NOT checked against 'node' any more. In a packaged install the
+  # server IS the application, so it is Chorus.exe — matching only 'node' meant Quit had
+  # nothing to stop and the app kept running.
   if (Test-Path $pidFile) {
     try {
       $recorded = [int](Get-Content $pidFile -Raw).Trim()
       $proc = Get-Process -Id $recorded -ErrorAction SilentlyContinue
-      if ($proc -and $proc.ProcessName -eq 'node') { return $proc }
+      if ($proc) { return $proc }
     } catch { }
   }
   return $null
+}
+
+function Get-ProcessListeningOnPort {
+  <#
+    .SYNOPSIS
+      Whatever process is listening on our port, if any.
+
+    .NOTES
+      Not restricted to 'node': an installed build listens as Chorus.exe. This is the
+      safety net for when the pid file is missing or stale, and it is what actually
+      frees the port.
+  #>
+  try {
+    $conns = Get-NetTCPConnection -LocalPort $script:Port -State Listen -ErrorAction SilentlyContinue
+    foreach ($c in $conns) {
+      $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
+      if ($p) { return $p }
+    }
+  } catch { }
+  return $null
+}
+
+function Stop-ChorusServer {
+  # Ask the app to shut down first. That is the only way it can clean up after itself:
+  # it stops the bundled SMTC bridge and removes its pid file, which killing the process
+  # outright would leave orphaned (the bridge would keep holding port 5000).
+  $asked = $false
+  if (Test-ServerUp) {
+    try {
+      Invoke-RestMethod -Uri "$script:BaseUrl/api/shutdown" -Method Post -TimeoutSec 4 | Out-Null
+      $asked = $true
+      Write-Log 'asked the server to shut down'
+    } catch {
+      Write-Log "graceful shutdown request failed: $($_.Exception.Message)"
+    }
+  }
+
+  if ($asked) {
+    # Give it a moment to stop the bridge and close the port on its own.
+    for ($i = 0; $i -lt 20; $i++) {
+      Start-Sleep -Milliseconds 250
+      if (-not (Test-ServerUp)) { break }
+    }
+  }
+
+  # Fall back to ending the processes, whichever name they have.
+  $target = Find-RunningServer
+  if (-not $target -and $script:ServerProcess) { $target = $script:ServerProcess }
+  if (-not $target) { $target = Get-ProcessListeningOnPort }
+
+  if ($target) {
+    Write-Log "stopping server pid $($target.Id) ($($target.ProcessName))"
+    try { Stop-Process -Id $target.Id -Force -ErrorAction SilentlyContinue } catch { }
+  }
+
+  # Covers a server that is still shutting down, or one the pid file did not know about.
+  for ($i = 0; $i -lt 12; $i++) {
+    $still = Get-ProcessListeningOnPort
+    if (-not $still) { break }
+    Write-Log "port $script:Port still held by pid $($still.Id) ($($still.ProcessName)); stopping it"
+    try { Stop-Process -Id $still.Id -Force -ErrorAction SilentlyContinue } catch { }
+    Start-Sleep -Milliseconds 300
+  }
+
+  Remove-Item $pidFile -ErrorAction SilentlyContinue
+  $script:ServerProcess = $null
+  $script:OwnsServer = $false
 }
 
 function Start-ChorusServer {
@@ -260,27 +331,6 @@ function Start-ChorusServer {
   }
 }
 
-function Stop-ChorusServer {
-  # Stop the node process rather than the wrapper, so the port is actually freed.
-  $target = Find-RunningServer
-  if (-not $target -and $script:ServerProcess) { $target = $script:ServerProcess }
-  if ($target) {
-    Write-Log "stopping server pid $($target.Id)"
-    try { Stop-Process -Id $target.Id -Force -ErrorAction SilentlyContinue } catch { }
-  }
-  # Also clear any orphaned node process listening on our port.
-  try {
-    $conns = Get-NetTCPConnection -LocalPort $script:Port -State Listen -ErrorAction SilentlyContinue
-    foreach ($c in $conns) {
-      $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
-      if ($p -and $p.ProcessName -eq 'node') { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
-    }
-  } catch { }
-  Remove-Item $pidFile -ErrorAction SilentlyContinue
-  $script:ServerProcess = $null
-  $script:OwnsServer = $false
-}
-
 function Restart-ChorusServer {
   Stop-ChorusServer
   Start-Sleep -Milliseconds 600
@@ -328,7 +378,8 @@ $openConsole.add_Click({
   })
 
 $openData = $menu.Items.Add('Open data folder')
-$openData.add_Click({ Start-Process explorer.exe -ArgumentList "`"$(Join-Path $Root 'data')`"" })
+# $dataDir, not $Root\data: the app decides where its data lives and passes it in.
+$openData.add_Click({ Start-Process explorer.exe -ArgumentList "`"$dataDir`"" })
 
 $restart = $menu.Items.Add('Restart server')
 $restart.add_Click({ Restart-ChorusServer })

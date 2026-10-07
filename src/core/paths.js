@@ -1,22 +1,16 @@
 /**
  * Where Chorus keeps its runtime data: settings, lyric cache, history, logs.
  *
- * This deliberately does NOT live beside the executable.
+ * Preference order:
+ *   1. CHORUS_DATA_DIR                explicit override, used by the tray helper and tests
+ *   2. data/ beside the executable    the installed and portable case: everything the app
+ *                                     owns sits inside its own folder
+ *   3. %LOCALAPPDATA%\Chorus\data     fallback for a read-only install location, which is
+ *                                     what a "Program Files" install without elevation is
  *
- * Two reasons. A single-file release should stay a single file — an exe that grows a
- * `data/` folder next to itself is not what "one executable" promises, and a folder
- * beside a downloaded exe looks like clutter. And the install location may be read-only
- * (Program Files, a locked-down profile), so writing settings there can simply fail.
- *
- * `%LOCALAPPDATA%\Chorus` is the conventional per-user location for application data on
- * Windows and needs no administrator rights.
- *
- * Overrides, highest priority first:
- *   CHORUS_DATA_DIR            environment variable, used by the tray helper and tests
- *   data/ beside the executable   only when it already exists, so a portable/unzipped
- *                                 layout keeps working and upgrading does not strand data
- *   %LOCALAPPDATA%\Chorus\data
- *   <install folder>\data         last resort, when LOCALAPPDATA is unavailable
+ * Step 2 is only used when it is actually writable, which is checked once at startup by
+ * attempting to create the folder. Without that check an all-users install would fail to
+ * save settings at all rather than quietly working.
  */
 
 import fs from 'node:fs';
@@ -29,20 +23,36 @@ function localAppData() {
   return process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
 }
 
+/** True when the directory can be created and written to. */
+function isWritable(dir) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const probe = path.join(dir, '.chorus-write-test');
+    fs.writeFileSync(probe, 'ok');
+    fs.unlinkSync(probe);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function resolveDataDir() {
   const override = process.env.CHORUS_DATA_DIR;
   if (override) return override;
 
-  // An existing data/ folder wins, so a portable install and anyone upgrading from an
-  // earlier version keeps their settings, cache and history.
-  const legacy = path.join(ROOT, 'data');
-  if (fs.existsSync(legacy)) return legacy;
+  // Inside the app's own folder, which is what an installer creates.
+  const beside = path.join(ROOT, 'data');
+  if (isWritable(beside)) return beside;
 
   try {
-    return path.join(localAppData(), 'Chorus', 'data');
+    const fallback = path.join(localAppData(), 'Chorus', 'data');
+    if (isWritable(fallback)) return fallback;
   } catch {
-    return legacy;
+    /* fall through */
   }
+
+  // Nothing is writable; return the intended location so error messages are sensible.
+  return beside;
 }
 
 /** Absolute path to the runtime data folder. */

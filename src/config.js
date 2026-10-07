@@ -298,25 +298,40 @@ function deepMerge(base, override) {
  *
  * Resolved here rather than importing the shared data-directory helper, because
  * `paths.js` imports ROOT from this module — importing back would be circular. The
- * order of preference must match `paths.js` exactly or settings would be read from one
- * place and written to another:
+ * preference order must match `paths.js` exactly or settings would be read from one place
+ * and written to another:
  *
- *   CHORUS_DATA_DIR, or an existing data/ beside the app (portable installs and
- *   upgrades), otherwise %LOCALAPPDATA%\Chorus\data.
+ *   CHORUS_DATA_DIR, else data/ beside the app when it is writable (the installed case),
+ *   else %LOCALAPPDATA%\Chorus\data.
  */
+function isWritableDir(dir) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const probe = path.join(dir, '.chorus-write-test');
+    fs.writeFileSync(probe, 'ok');
+    fs.unlinkSync(probe);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function resolveDataDir() {
   const override = process.env.CHORUS_DATA_DIR;
   if (override) return override;
 
-  const legacy = path.join(ROOT, 'data');
-  if (fs.existsSync(legacy)) return legacy;
+  const beside = path.join(ROOT, 'data');
+  if (isWritableDir(beside)) return beside;
 
   try {
     const base = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
-    return path.join(base, 'Chorus', 'data');
+    const fallback = path.join(base, 'Chorus', 'data');
+    if (isWritableDir(fallback)) return fallback;
   } catch {
-    return legacy;
+    /* fall through */
   }
+
+  return beside;
 }
 
 const CONFIG_PATH = path.join(resolveDataDir(), 'config.json');
