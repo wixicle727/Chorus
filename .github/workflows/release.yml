@@ -115,11 +115,17 @@ jobs:
       - name: Smoke-test the executable
         shell: pwsh
         run: |
-          # A build that cannot start is worse than no build, so run it and require
-          # the API to answer before anything is published.
+          # A build that cannot start is worse than no build, so run it and require the
+          # API to answer before anything is published.
+          #
+          # The executable is a Windows GUI-subsystem binary (so it opens no console),
+          # which means it has nowhere to write stdout. Its own log file is used instead.
           $exe = (Resolve-Path 'build/Chorus/Chorus.exe').Path
           $work = (Resolve-Path 'build/Chorus').Path
-          Start-Process -FilePath $exe -ArgumentList @('--no-open') -WorkingDirectory $work -WindowStyle Hidden
+          $log = Join-Path $work 'smoke.log'
+          Remove-Item $log -Force -ErrorAction SilentlyContinue
+
+          Start-Process -FilePath $exe -ArgumentList @('--console', '--no-open', '--log-file', $log) -WorkingDirectory $work -WindowStyle Hidden
 
           $up = $false
           for ($i = 0; $i -lt 60; $i++) {
@@ -129,8 +135,12 @@ jobs:
               if ($health.name -eq 'chorus') { $up = $true; break }
             } catch { }
           }
-          if (-not $up) { throw 'the executable did not answer on /api/health within 30s' }
-          Write-Host 'executable started and answered'
+          if (-not $up) {
+            Write-Host '--- smoke log ---'
+            Get-Content $log -ErrorAction SilentlyContinue | Select-Object -Last 40 | Write-Host
+            throw 'the executable did not answer on /api/health within 30s'
+          }
+          Write-Host "executable started and answered (v$($health.version))"
 
           # The bundled bridge must come up with it.
           $bridge = $false

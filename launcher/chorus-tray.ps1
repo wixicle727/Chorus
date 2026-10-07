@@ -73,23 +73,35 @@ function New-ChorusIcon {
   # Prefer the generated brand icon. It is the same mark the panel and README use,
   # and it is already the right sizes for the tray (the .ico carries 16-256 px, so
   # Windows picks the crisp one instead of scaling a single bitmap).
-  try {
-    $assets = Join-Path (Split-Path -Parent $PSScriptRoot) 'assets'
-    $icoPath = Join-Path $assets 'chorus.ico'
-    if (Test-Path $icoPath) {
-      return (New-Object System.Drawing.Icon($icoPath))
+  #
+  # Several locations are tried because this helper runs from different places: beside
+  # the app in a source checkout (this script is in launcher/, so assets/ is its
+  # sibling's child), and from Chorus's unpacked cache directory when running as a
+  # bundled executable. -Root is passed by the app and is authoritative when present.
+  $assetRoots = @()
+  if ($Root) { $assetRoots += (Join-Path $Root 'assets') }
+  $assetRoots += (Join-Path (Split-Path -Parent $PSScriptRoot) 'assets')
+  $assetRoots += (Join-Path $PSScriptRoot 'assets')
+
+  foreach ($assets in $assetRoots) {
+    if (-not $assets -or -not (Test-Path $assets)) { continue }
+    try {
+      $icoPath = Join-Path $assets 'chorus.ico'
+      if (Test-Path $icoPath) {
+        return (New-Object System.Drawing.Icon($icoPath))
+      }
+      $pngPath = Join-Path $assets 'chorus-32.png'
+      if (Test-Path $pngPath) {
+        $fromPng = New-Object System.Drawing.Bitmap($pngPath)
+        $handle = $fromPng.GetHicon()
+        $icon = [System.Drawing.Icon]::FromHandle($handle).Clone()
+        $fromPng.Dispose()
+        return $icon
+      }
+    } catch {
+      # Try the next location, then fall through to the drawn version: a missing or
+      # unreadable asset file must never leave the user with no tray icon at all.
     }
-    $pngPath = Join-Path $assets 'chorus-32.png'
-    if (Test-Path $pngPath) {
-      $fromPng = New-Object System.Drawing.Bitmap($pngPath)
-      $handle = $fromPng.GetHicon()
-      $icon = [System.Drawing.Icon]::FromHandle($handle).Clone()
-      $fromPng.Dispose()
-      return $icon
-    }
-  } catch {
-    # Fall through to the drawn version: a missing or unreadable asset file must
-    # never leave the user with no tray icon at all.
   }
 
   # Fallback: drawn at runtime, so a source checkout with no assets/ still works.

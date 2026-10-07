@@ -32,6 +32,7 @@ import { Store } from './core/store.js';
 import { createServer } from './core/server.js';
 import { getAutostartStatus } from './core/autostart.js';
 import { BridgeProcess } from './core/bridge-process.js';
+import { embeddedHome } from './core/embedded.js';
 import { log, openLogFile, getLogPath } from './core/log.js';
 
 const args = process.argv.slice(2);
@@ -41,9 +42,26 @@ const option = (name, fallback) => {
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
 };
 
+/**
+ * True when running as the bundled Chorus.exe rather than from a source checkout.
+ *
+ * The packaged build is a double-click application, so its defaults differ: it hides in
+ * the tray instead of printing a banner to a console that is not there.
+ */
+const PACKAGED = process.env.CHORUS_PACKAGED === '1';
+
 const noOpen = flag('--no-open') || flag('--background');
-const wantTray = flag('--tray');
 const quiet = flag('--quiet');
+/**
+ * Show the tray icon.
+ *
+ * Packaged: always, unless the user asked for a console instead — a double-clicked
+ * overlay app should appear in the tray, and `--console` is how you get the old
+ * terminal behaviour back for debugging.
+ *
+ * From source: only when asked, so `node src/index.js` stays a plain console program.
+ */
+const wantTray = flag('--tray') || (PACKAGED && !flag('--console'));
 const host = option('--host', '127.0.0.1');
 
 // When started hidden, mirror output to a file so the tray's "View server
@@ -175,16 +193,35 @@ function startTrayHelper(port) {
     log.warn('  --tray is only supported on Windows.');
     return;
   }
-  const script = path.join(ROOT, 'launcher', 'chorus-tray.ps1');
-  if (!fs.existsSync(script)) {
-    log.warn(`  Tray helper not found at ${script}`);
+  // In a packaged build the app runs from the unpacked cache directory, so the helper
+  // is there rather than beside the executable. `embeddedHome()` reports that location.
+  const home = embeddedHome();
+  const candidates = [path.join(home ?? '', 'launcher', 'chorus-tray.ps1'), path.join(ROOT, 'launcher', 'chorus-tray.ps1')];
+  const script = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!script) {
+    log.warn(`  Tray helper not found. Looked in: ${candidates.join(', ')}`);
     return;
   }
   const shell = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   try {
     spawn(
       fs.existsSync(shell) ? shell : 'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script, '-Root', ROOT, '-Port', String(port), '-NoServer'],
+      [
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-WindowStyle',
+        'Hidden',
+        '-File',
+        script,
+        // The helper finds its icon under this root. In a packaged build that is the
+        // unpacked directory, not the executable's folder (which has no assets/).
+        '-Root',
+        home ?? ROOT,
+        '-Port',
+        String(port),
+        '-NoServer',
+      ],
       { detached: true, stdio: 'ignore', windowsHide: true },
     ).unref();
   } catch (err) {

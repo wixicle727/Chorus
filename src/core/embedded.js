@@ -53,6 +53,17 @@ export function isEmbedded() {
   }
 }
 
+/**
+ * The directory the executable unpacked its support files into, or null from source.
+ *
+ * Exposed so callers that need a bundled resource on disk — the tray helper's icon, for
+ * instance — ask the shim's chosen location rather than guessing.
+ */
+export function embeddedHome() {
+  if (!isEmbedded()) return null;
+  return process.env.CHORUS_HOME || null;
+}
+
 /** The embedded asset names, or an empty list when running from source. */
 export function listEmbedded() {
   if (!isEmbedded()) return [];
