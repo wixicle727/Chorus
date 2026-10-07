@@ -67,6 +67,10 @@ function main() {
     iscc,
     [
       `/DAppVersion=${pkg.version}`,
+      // The release workflow names artifacts from the git tag ("v1.2.0"), so the
+      // installer is built with the same leading v. Without it the publish step looks for
+      // a file that does not exist and silently attaches only the zip.
+      `/DVPrefixedVersion=v${pkg.version}`,
       `/DSourceDir=${STAGE_DIR}`,
       `/DOutputDir=${BUILD_DIR}`,
       ISS,
@@ -80,14 +84,14 @@ function main() {
     fail(`the installer build failed (Inno Setup exited ${result.status}).`);
   }
 
-  const setup = path.join(BUILD_DIR, `Chorus-${pkg.version}-Setup.exe`);
+  const setup = path.join(BUILD_DIR, `Chorus-v${pkg.version}-Setup.exe`);
   if (!fs.existsSync(setup)) {
     fail(`Inno Setup reported success but ${setup} is missing.`);
   }
 
   const mb = (fs.statSync(setup).size / 1048576).toFixed(1);
   console.log('');
-  log(`done: build/Chorus-${pkg.version}-Setup.exe (${mb} MB)`);
+  log(`done: build/Chorus-v${pkg.version}-Setup.exe (${mb} MB)`);
   log('installs per-user by default, so it needs no administrator rights');
 }
 

@@ -163,9 +163,16 @@ jobs:
           # tooling has to be pre-installed on the runner.
           npm run build:installer
 
-          $setup = Get-ChildItem 'build/Chorus-*-Setup.exe' -ErrorAction SilentlyContinue
-          if (-not $setup) { throw 'the installer was not produced' }
-          Get-Item $setup.FullName | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
+          # Assert the exact filename the Publish step attaches. A mismatch is otherwise
+          # silent: action-gh-release skips files it cannot find and still reports success,
+          # which is how a release once shipped with only the zip.
+          $expected = "build/Chorus-v${{ steps.version.outputs.bare }}-Setup.exe"
+          if (-not (Test-Path $expected)) {
+            Write-Host 'build/ contents:'
+            Get-ChildItem build -File | Select-Object Name | Write-Host
+            throw "expected the installer at $expected but it is missing"
+          }
+          Get-Item $expected | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
 
       - name: Assemble the release archive
         shell: pwsh
@@ -190,7 +197,13 @@ jobs:
           $zip = "build/Chorus-${{ steps.version.outputs.value }}-portable.zip"
           Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -Force
           Write-Host "built $zip"
-          Get-Item $zip | Select-Object FullName, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
+
+          # Both artifacts must exist before publishing, because the release step skips
+          # anything it cannot find without saying so.
+          foreach ($artifact in @("build/Chorus-${{ steps.version.outputs.value }}-Setup.exe", $zip)) {
+            if (-not (Test-Path $artifact)) { throw "missing release artifact: $artifact" }
+            Get-Item $artifact | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
+          }
 
       - name: Write release notes from the changelog
         shell: pwsh

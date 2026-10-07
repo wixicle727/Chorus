@@ -16,6 +16,15 @@
   #define OutputDir "build"
 #endif
 
+; The installer carries a leading "v" so its filename matches the portable zip, which is
+; named from the git tag. The release workflow attaches both by name, and a mismatch here
+; means the artifact is silently skipped rather than reported.
+#ifdef VPrefixedVersion
+  #define OutputName "Chorus-" + VPrefixedVersion + "-Setup"
+#else
+  #define OutputName "Chorus-" + AppVersion + "-Setup"
+#endif
+
 ; AppId is what makes an upgrade replace the previous install instead of stacking a
 ; second copy. It must never change once released.
 #define AppId "{{8F3C1D42-9A71-4E6B-B2C5-7D0E4A19F3B8}"
@@ -44,7 +53,7 @@ DisableProgramGroupPage=yes
 AllowNoIcons=yes
 
 OutputDir={#OutputDir}
-OutputBaseFilename=Chorus-{#AppVersion}-Setup
+OutputBaseFilename={#OutputName}
 SetupIconFile={#SourceDir}\..\..\assets\chorus.ico
 UninstallDisplayIcon={app}\Chorus.exe
 UninstallDisplayName={#AppName} {#AppVersion}
