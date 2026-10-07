@@ -149,14 +149,13 @@ jobs:
       - name: Assemble the release archive
         shell: pwsh
         run: |
-          # The exe build already stages everything the release needs into
-          # build/Chorus, including the folders that must sit beside the executable.
+          # The executable is self-contained: the front-end, the images and the SMTC
+          # bridge's scripts are all embedded, and the bridge is unpacked to a per-user
+          # cache directory on first run. Only human-facing files ship beside it.
           $stage = 'build/Chorus'
           if (-not (Test-Path "$stage/Chorus.exe")) { throw "missing $stage/Chorus.exe" }
-          if (-not (Test-Path "$stage/web/overlay.html")) { throw 'the web folder was not staged' }
-          if (-not (Test-Path "$stage/tools/smtc-bridge/server.ps1")) { throw 'the bundled bridge was not staged' }
 
-          # Runtime data is generated on first run and must never ship.
+          # Runtime data from the smoke test must never ship.
           Remove-Item "$stage/data" -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item "$stage/.npm-cache" -Recurse -Force -ErrorAction SilentlyContinue
 

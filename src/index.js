@@ -26,7 +26,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
-import { loadConfig, saveConfig, ROOT } from './config.js';
+import { loadConfig, saveConfig, ROOT, VERSION } from './config.js';
 import { Engine } from './core/engine.js';
 import { Store } from './core/store.js';
 import { createServer } from './core/server.js';
@@ -107,6 +107,7 @@ const engine = new Engine(config, store);
 const bridge = new BridgeProcess({
   port: config.smtc?.bridge?.port ?? 5000,
   pollMs: config.smtc?.pollIntervalMs ?? 500,
+  version: VERSION,
   log,
 });
 

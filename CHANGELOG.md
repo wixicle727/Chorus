@@ -11,16 +11,23 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- **A standalone `Chorus.exe`.** The release no longer needs Node installed. The
-  application is embedded into a copy of Node 22 with Node's Single Executable
-  Applications support, using `postject` as the only build-time dependency — so the
-  project still ships with **zero runtime dependencies**. Build it with
-  `npm run build:exe`.
+- **A single-file `Chorus.exe`.** The release is one executable with nothing to
+  install: the application, the front-end, the logo and the SMTC bridge's scripts are
+  all embedded inside it, and the release folder holds only the exe, the README,
+  `LICENSE` and a background-launch shortcut.
 
-  `web/`, `assets/` and `tools/` ship as real files beside the executable rather
-  than being embedded: the SMTC bridge is a PowerShell program and cannot live
-  inside a Node binary, and keeping the front-end as files means the overlay can be
-  edited without a rebuild. Unzip the folder and run `Chorus.exe`.
+  Built with Node's Single Executable Applications support, using `postject` and
+  `rcedit` as build-time-only dependencies — so the project still ships with **zero
+  runtime dependencies**. `npm run build:exe`.
+
+  - The front-end is served **straight from memory**, so no files are written for it.
+  - The bridge must exist as real files for PowerShell to run it, so it is unpacked
+    once into a per-user cache directory. Several locations are tried, because a
+    locked-down profile can deny the usual one.
+  - The executable carries the Chorus icon (`assets/chorus.ico`) and version metadata,
+    set with `rcedit`, instead of the default Node icon.
+  - `src/` is repacked next to itself on first run, so the extracted copy has the same
+    layout as a source checkout and nothing in the app needs path rewriting.
 
 - **A bundled SMTC bridge, started by Chorus.** The bridge in `tools/smtc-bridge/`
   is now launched as a child process when Chorus starts and stopped when it exits,

@@ -2,7 +2,59 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+import { isEmbedded, readEmbedded } from './core/embedded.js';
+
+/** Where this module lives: `<app>/src` in a source checkout, or the unpacked copy. */
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * The application root.
+ *
+ * From source this is the project folder, whose `src` is this file's parent.
+ *
+ * Inside a bundled executable the code runs from an unpacked cache directory, and
+ * using that as the root would put `data/` somewhere Windows may clear at any time —
+ * losing the user's settings, cache and history without warning. The executable's own
+ * folder is used instead, which also makes the packaged build behave like a portable
+ * app: `data/` sits next to `Chorus.exe`.
+ */
+export const ROOT = isEmbedded() ? path.dirname(process.execPath) : path.resolve(MODULE_DIR, '..');
+
+/**
+ * The application version.
+ *
+ * Resolved once here because several modules need it — the startup banner, the health
+ * endpoint — and a hardcoded copy in any of them drifts from package.json the moment a
+ * release is cut. In a bundled executable package.json is embedded rather than on disk,
+ * so the embedded copy is read first.
+ */
+export const VERSION = (() => {
+  const sources = [];
+
+  try {
+    // Same module, so it is already loaded by the time this runs.
+    const embedded = readEmbedded('package.json', 'utf8');
+    if (embedded) sources.push(embedded);
+  } catch {
+    /* not embedded */
+  }
+
+  try {
+    sources.push(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  } catch {
+    /* no package.json beside the executable */
+  }
+
+  for (const text of sources) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.version) return parsed.version;
+    } catch {
+      /* try the next source */
+    }
+  }
+  return '0.0.0';
+})();
 
 /** Music platforms we can recognise from a Windows SMTC app id (AUMID). */
 export const PLATFORMS = [

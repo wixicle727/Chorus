@@ -32,12 +32,19 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { ROOT, loadConfig, saveConfig, applyPatch, PLATFORMS, PROVIDER_LABELS } from '../config.js';
+import { ROOT, VERSION, loadConfig, saveConfig, applyPatch, PLATFORMS, PROVIDER_LABELS } from '../config.js';
 import { WebSocketServer } from './websocket.js';
+import { webAssets } from './embedded.js';
 import { toLrcText } from './lrc.js';
 import { getAutostartStatus, enableAutostart, disableAutostart } from './autostart.js';
 
 const WEB_DIR = path.join(ROOT, 'web');
+
+/**
+ * Front-end files carried inside a bundled executable, keyed by request path.
+ * Null when running from source, in which case `web/` is read from disk.
+ */
+const webAssetMap = webAssets();
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -97,8 +104,35 @@ async function readBody(req, limitBytes = 2 * 1024 * 1024) {
   });
 }
 
-/** Serve a file from web/, refusing anything that escapes the directory. */
+/**
+ * Serve a file from web/, refusing anything that escapes the directory.
+ *
+ * Inside a bundled Chorus.exe the front-end is embedded and served straight from
+ * memory, so the executable needs no files beside it. From a source checkout the
+ * files are read from disk as before.
+ */
 function serveStatic(res, relativePath, { download = null } = {}) {
+  const normalised = String(relativePath).replace(/\\/g, '/').replace(/^\/+/, '');
+
+  const respond = (data, extension) => {
+    const headers = {
+      'Content-Type': MIME[extension] ?? 'application/octet-stream',
+      'Content-Length': data.length,
+      // The overlay must never serve a stale cached page while the user is tuning it.
+      'Cache-Control': 'no-cache',
+    };
+    if (download) headers['Content-Disposition'] = `attachment; filename="${download}"`;
+    res.writeHead(200, headers);
+    res.end(data);
+  };
+
+  // Embedded first: in a packaged build this is the only source.
+  const embedded = webAssetMap?.get(normalised);
+  if (embedded) {
+    respond(embedded, path.extname(normalised).toLowerCase());
+    return;
+  }
+
   const target = path.resolve(WEB_DIR, relativePath);
   if (!target.startsWith(WEB_DIR)) {
     sendText(res, 403, 'forbidden');
@@ -109,15 +143,7 @@ function serveStatic(res, relativePath, { download = null } = {}) {
       sendText(res, 404, `not found: /${relativePath}`);
       return;
     }
-    const headers = {
-      'Content-Type': MIME[path.extname(target).toLowerCase()] ?? 'application/octet-stream',
-      'Content-Length': data.length,
-      // The overlay must never serve a stale cached page while the user is tuning it.
-      'Cache-Control': 'no-cache',
-    };
-    if (download) headers['Content-Disposition'] = `attachment; filename="${download}"`;
-    res.writeHead(200, headers);
-    res.end(data);
+    respond(data, path.extname(target).toLowerCase());
   });
 }
 
@@ -203,7 +229,7 @@ export function createServer({ engine, store, getConfig, setConfig, onShutdown =
         sendJson(res, 200, {
           ok: true,
           name: 'chorus',
-          version: '1.0.0',
+          version: VERSION,
           node: process.version,
           uptimeSeconds: Math.round(process.uptime()),
           wsClients: ws.size,

@@ -20,10 +20,26 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT } from '../config.js';
+import { ensureEmbeddedBridge, isEmbedded } from './embedded.js';
 
-/** Where the bundled bridge lives. */
+/** Where the bundled bridge lives when running from source. */
 export const BRIDGE_DIR = path.join(ROOT, 'tools', 'smtc-bridge');
 export const BRIDGE_SCRIPT = path.join(BRIDGE_DIR, 'server.ps1');
+
+/**
+ * Where the bridge's scripts actually are.
+ *
+ * In a bundled executable they are written out of the binary into a per-user cache
+ * directory first, because PowerShell can only run a script that exists on disk.
+ * From a source checkout this is simply `tools/smtc-bridge`.
+ */
+function resolveBridge(version) {
+  if (isEmbedded()) {
+    const extracted = ensureEmbeddedBridge(version);
+    if (extracted) return extracted;
+  }
+  return { dir: BRIDGE_DIR, script: BRIDGE_SCRIPT, launcher: path.join(BRIDGE_DIR, 'bridge-hidden.vbs') };
+}
 
 function powershellPath() {
   const candidate = path.join(
@@ -55,7 +71,7 @@ async function probe(baseUrl, timeoutMs = 1500) {
  * found" rather than stopping the server from starting at all.
  */
 export class BridgeProcess {
-  constructor({ port = 5000, host = '127.0.0.1', pollMs = 500, log = console } = {}) {
+  constructor({ port = 5000, host = '127.0.0.1', pollMs = 500, log = console, version = '0.0.0' } = {}) {
     this.port = Number(port);
     this.host = host;
     this.pollMs = Number(pollMs);
@@ -66,6 +82,14 @@ export class BridgeProcess {
     /** 'external' | 'managed' | 'starting' | 'failed' | 'disabled' */
     this.state = 'disabled';
     this.detail = null;
+    /** Resolved lazily: extraction only happens if we actually need to start it. */
+    this.resolved = null;
+    this.version = version;
+  }
+
+  get scriptPath() {
+    if (!this.resolved) this.resolved = resolveBridge(this.version);
+    return this.resolved.script;
   }
 
   get url() {
@@ -80,7 +104,8 @@ export class BridgeProcess {
       url: this.url,
       managed: this.owns,
       pid: this.child?.pid ?? null,
-      available: fs.existsSync(BRIDGE_SCRIPT),
+      available: fs.existsSync(this.scriptPath),
+      embedded: isEmbedded(),
     };
   }
 
@@ -98,9 +123,10 @@ export class BridgeProcess {
       return this.snapshot();
     }
 
-    if (!fs.existsSync(BRIDGE_SCRIPT)) {
+    const script = this.scriptPath;
+    if (!fs.existsSync(script)) {
       this.state = 'failed';
-      this.detail = `the bundled bridge is missing at ${BRIDGE_SCRIPT}`;
+      this.detail = `the bundled bridge is missing at ${script}`;
       this.log?.warn?.(`  Built-in bridge unavailable: ${this.detail}`);
       return this.snapshot();
     }
@@ -117,7 +143,7 @@ export class BridgeProcess {
           '-WindowStyle',
           'Hidden',
           '-File',
-          BRIDGE_SCRIPT,
+          script,
           '-Port',
           String(this.port),
           '-HostName',

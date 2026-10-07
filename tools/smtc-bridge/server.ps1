@@ -63,11 +63,14 @@ function Write-Log {
 
 # --- version, read from the project's package.json so the two never drift ----
 
-$script:AppVersion = '1.0.0'
+$script:AppVersion = '0.0.0'
 try {
   # Resolve from this script's own location rather than the current directory, so
   # the bridge works when launched from anywhere (a shortcut, a scheduler, or
   # another process's working directory).
+  #
+  # Inside a bundled Chorus.exe this script runs from a cache directory that mirrors
+  # the project layout, so the same relative lookup finds the version.
   $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
   $pkgPath = Join-Path $projectRoot 'package.json'
   if (Test-Path $pkgPath) {
@@ -75,7 +78,9 @@ try {
     if ($pkg.version) { $script:AppVersion = [string]$pkg.version }
   }
 } catch {
-  # A missing or malformed package.json must not stop the bridge.
+  # A missing or malformed package.json must not stop the bridge. The '0.0.0' above
+  # makes it obvious in /health that the version could not be read, rather than
+  # reporting some other release's number.
 }
 
 # --- snapshot cache ---------------------------------------------------------
