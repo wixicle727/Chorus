@@ -11,6 +11,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Update checking.** The About page asks GitHub for the newest release and says whether
+  you are up to date, with the release notes and a direct download link when you are not.
+  Checked when the page is opened, and on demand with **Check now**.
+
+  Nothing is downloaded or installed automatically — it only reports. Results are cached
+  server-side for six hours so opening the panel does not spend the 60-requests-per-hour
+  allowance an unauthenticated GitHub client gets; **Check now** forces a fresh request.
+  A failed check is not treated as an error: the panel says why and links to the releases
+  page instead.
+
+- **14 regression checks** for version comparison, covering `v`-prefixed tags, numeric
+  rather than lexicographic ordering (`1.10.0` > `1.9.9`), and pre-releases ranking below
+  the release they lead to.
+
 - **A single-file `Chorus.exe`.** The release is one executable with nothing to
   install: the application, the front-end, the logo and the SMTC bridge's scripts are
   all embedded inside it, and the release folder holds only the exe, the README,

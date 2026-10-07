@@ -22,6 +22,7 @@ import {
 import { scoreCandidate, isCandidateAcceptable, createRegistry, resolveLyrics, providerLabel } from '../src/core/match.js';
 import { selectSession, BridgeClient, PlaybackStatus, looksLikeStreamTitle } from '../src/core/bridge.js';
 import { PROVIDERS, plainToEstimatedLrc } from '../src/providers/index.js';
+import { compareVersions, parseVersion } from '../src/core/update.js';
 
 const OFFLINE_ONLY = process.argv.includes('--offline');
 
@@ -863,6 +864,40 @@ if (!OFFLINE_ONLY) {
   }
 } else {
   console.log('\n\u001b[33mSkipping live network tests (--offline)\u001b[0m');
+}
+
+/* ------------------------------------------------------------------ *
+ * Update checking
+ * ------------------------------------------------------------------ */
+
+section('Update checking');
+
+{
+  // Version comparison decides whether an update is offered, so getting it wrong means
+  // either missed updates or a permanent false "update available" prompt. GitHub release
+  // tags carry a "v" prefix, which must not throw the comparison off.
+  const cases = [
+    ['1.2.0', '1.1.0', 1, 'newer minor'],
+    ['1.1.0', '1.2.0', -1, 'older minor'],
+    ['1.2.0', '1.2.0', 0, 'identical'],
+    ['v1.3.0', '1.2.0', 1, 'v-prefixed tag'],
+    ['1.2.0', 'v1.2.0', 0, 'prefix on either side'],
+    ['1.2.1', '1.2.0', 1, 'patch bump'],
+    ['1.10.0', '1.9.9', 1, 'numeric, not lexicographic'],
+    ['2.0.0', '1.99.99', 1, 'major beats minor'],
+    ['1.2.0-beta.1', '1.2.0', -1, 'pre-release is older than its release'],
+    ['1.2.0', '1.2.0-beta.1', 1, 'release is newer than its pre-release'],
+  ];
+
+  for (const [a, b, want, label] of cases) {
+    const got = compareVersions(a, b);
+    check(`compare(${a}, ${b}) = ${want} (${label})`, got === want, `got ${got}`);
+  }
+
+  check('an unparseable version compares as equal', compareVersions('nonsense', '1.0.0') === 0);
+  check('parseVersion splits a v-prefixed tag', JSON.stringify(parseVersion('v1.2.3')) === JSON.stringify({ major: 1, minor: 2, patch: 3, prerelease: null }));
+  check('parseVersion rejects nonsense', parseVersion('not-a-version') === null);
+  check('parseVersion reads a pre-release suffix', parseVersion('1.2.3-rc.1')?.prerelease === 'rc.1');
 }
 
 /* ------------------------------------------------------------------ *

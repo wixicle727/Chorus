@@ -418,13 +418,13 @@ npm run test:engine   # engine timing against a fake smtc-bridge
 npm run test:ui       # pages, DOM contract, theme tokens and the JSON API
 ```
 
-**228 checks** across three suites:
+**239 checks** across three suites:
 
 | Suite | Checks | Covers |
 |---|---|---|
-| `test/run.js` | 119 | LRC parsing (fraction widths, multi-timestamp lines, offset headers, word tags, CRLF), artist splitting, untimed lyrics → estimated timings, text normalisation, scoring, the title gate, version demotion, score-first selection, the fallback policy, session selection, **stream-title detection** (so a song called `!NVADE SHOW!` is not mistaken for a Twitch tab), smtc-bridge payloads |
+| `test/run.js` | 133 | LRC parsing (fraction widths, multi-timestamp lines, offset headers, word tags, CRLF), artist splitting, untimed lyrics → estimated timings, text normalisation, scoring, the title gate, version demotion, score-first selection, the fallback policy, session selection, **stream-title detection** (so a song called `!NVADE SHOW!` is not mistaken for a Twitch tab), smtc-bridge payloads |
 | `test/engine.js` | 18 | Runs the real engine against a fake smtc-bridge: pausing is broadcast, position then freezes, no socket spam, resuming is broadcast, `refresh` bypasses a cached negative result, and an idle track still emits a heartbeat |
-| `test/ui.js` | 91 | Every page and asset served, every element the panel script looks up exists, overlay carousel/transparency contract, **no `requestAnimationFrame` in the overlay loop**, an overlay client ignoring pings stays connected, JSON API, that no colour uses the Windows `#AARRGGBB` byte order, and that the brand icons are served and linked |
+| `test/ui.js` | 88 | Every page and asset served, every element the panel script looks up exists, overlay carousel/transparency contract, **no `requestAnimationFrame` in the overlay loop**, an overlay client ignoring pings stays connected, JSON API, that no colour uses the Windows `#AARRGGBB` byte order, and that the brand icons are served and linked |
 
 `npm test` additionally runs live lookups: a Japanese, an English and a Chinese
 track, plus a deliberately unmatchable one, and smoke-tests each provider.

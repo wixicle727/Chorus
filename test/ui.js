@@ -245,6 +245,10 @@ section('API surface');
     ['/api/cache', 'GET'],
     ['/api/history', 'GET'],
     ['/api/sessions', 'GET'],
+    // Hits the GitHub releases API on a cold cache. A failure there still answers 200
+    // with ok:false — which is what the panel renders — so this stays a liveness check
+    // rather than a network dependency, and the suite passes offline.
+    ['/api/update', 'GET'],
   ]) {
     const r = await fetch(BASE + path, { method });
     let json = null;

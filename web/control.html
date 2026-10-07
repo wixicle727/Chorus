@@ -634,6 +634,25 @@
             <div class="control"><button class="btn small" id="clearOverrides">Clear</button></div></div>
         </div>
       </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">↓</span>Updates</div>
+        <div class="callout" id="updateCallout" hidden></div>
+        <div class="card">
+          <div class="row"><div class="info">
+            <div class="t">Version <span class="chip" id="updateVersion">—</span></div>
+            <div class="d" id="updateStatus">Not checked yet.</div>
+          </div>
+            <div class="control">
+              <a class="btn small" id="updateDownload" href="#" target="_blank" rel="noreferrer" hidden>Download</a>
+              <button class="btn small" id="checkUpdate">Check now</button>
+            </div></div>
+          <div class="row"><div class="info">
+            <div class="t">Release notes</div>
+            <div class="d mono" id="updateNotes" style="white-space:pre-wrap;max-height:180px;overflow:auto">—</div>
+          </div></div>
+        </div>
+      </div>
     </section>
   </main>
 </div>
@@ -713,6 +732,10 @@ function showPage(name) {
   }
   $('main').scrollTop = 0;
   location.hash = name;
+
+  // Opening About is the natural moment to check for a newer release. The server caches
+  // the answer, so this does not hit GitHub on every visit.
+  if (name === 'about') refreshUpdate();
 }
 for (const btn of navButtons) btn.addEventListener('click', () => showPage(btn.dataset.page));
 if (location.hash) showPage(location.hash.slice(1));
@@ -1024,6 +1047,7 @@ function wireControls() {
     } catch (err) { toast(err.message, true); }
   });
   $('copyConfigPath').addEventListener('click', () => copy($('aboutDataDir').textContent, 'Path copied'));
+$('checkUpdate').addEventListener('click', () => refreshUpdate(true));
 
   wireApplicationPage();
 }
@@ -1080,9 +1104,71 @@ async function refreshAutostart() {
   }
 }
 
+/**
+ * Update check against GitHub Releases.
+ *
+ * Only reports: nothing is downloaded or installed by the panel. The result is cached
+ * server-side for a few hours, so "Check now" forces a fresh request while simply
+ * opening this page does not.
+ */
+async function refreshUpdate(force = false) {
+  const chip = $('updateVersion');
+  const status = $('updateStatus');
+  const callout = $('updateCallout');
+  const download = $('updateDownload');
+  const button = $('checkUpdate');
+
+  button.disabled = true;
+  status.textContent = 'Checking GitHub…';
+  callout.hidden = true;
+  download.hidden = true;
+
+  try {
+    const info = await api(`/api/update${force ? '?force=1' : ''}`);
+    chip.textContent = info.current ?? '—';
+    chip.className = 'chip';
+
+    if (!info.ok) {
+      // Not being able to reach GitHub is not a failure worth alarming anyone about.
+      status.textContent = info.reason ?? 'Could not check for updates.';
+      callout.hidden = false;
+      callout.className = 'callout warn';
+      callout.innerHTML = `<span class="ico">!</span><div>Could not check for updates: ${escapeHtml(info.reason ?? 'unknown reason')}. <a href="${info.releasesUrl}" target="_blank" rel="noreferrer">Open the releases page</a> instead.</div>`;
+      return;
+    }
+
+    if (!info.updateAvailable) {
+      status.textContent = `You are on the latest version.${info.cached ? ' (cached)' : ''}`;
+      callout.hidden = false;
+      callout.className = 'callout ok';
+      callout.innerHTML = `<span class="ico">✓</span><div><strong>Up to date.</strong> Chorus ${escapeHtml(info.current)} is the newest release.</div>`;
+      return;
+    }
+
+    const when = info.publishedAt ? new Date(info.publishedAt).toLocaleDateString() : '';
+    status.textContent = `Version ${info.latest} is available${when ? ` (${when})` : ''}.`;
+    callout.hidden = false;
+    callout.className = 'callout ok';
+    callout.innerHTML = `<span class="ico">↓</span><div><strong>Chorus ${escapeHtml(info.latest)} is available.</strong> You have ${escapeHtml(info.current)}. <a href="${info.pageUrl}" target="_blank" rel="noreferrer">See the release</a>.</div>`;
+
+    if (info.downloadUrl) {
+      download.href = info.downloadUrl;
+      download.hidden = false;
+    }
+
+    $('updateNotes').textContent = info.notes?.trim() || 'No release notes were provided.';
+  } catch (err) {
+    status.textContent = 'Could not check for updates.';
+    callout.hidden = false;
+    callout.className = 'callout error';
+    callout.innerHTML = `<span class="ico">✕</span><div>${escapeHtml(err.message)}</div>`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function wireApplicationPage() {
-  $('autostartToggle').addEventListener('change', async (e) => {
-    const toggle = e.target;
+  $('autostartToggle').addEventListener('change', async (e) => {    const toggle = e.target;
     toggle.disabled = true;
     try {
       const result = await api('/api/autostart', {

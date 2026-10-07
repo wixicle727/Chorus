@@ -36,6 +36,7 @@ import { ROOT, VERSION, loadConfig, saveConfig, applyPatch, PLATFORMS, PROVIDER_
 import { WebSocketServer } from './websocket.js';
 import { webAssets } from './embedded.js';
 import { LOG_DIR } from './paths.js';
+import { checkForUpdate } from './update.js';
 import { toLrcText } from './lrc.js';
 import { getAutostartStatus, enableAutostart, disableAutostart } from './autostart.js';
 
@@ -270,6 +271,14 @@ export function createServer({ engine, store, getConfig, setConfig, onShutdown =
         } catch (err) {
           sendJson(res, 500, { ok: false, error: `could not read the log: ${err.message}` });
         }
+        return;
+      }
+
+      if (pathname === '/api/update' && method === 'GET') {
+        // `?force=1` ignores the cache, for the panel's explicit "Check now" button.
+        const force = url.searchParams.get('force') === '1';
+        const result = await checkForUpdate({ force });
+        sendJson(res, 200, result);
         return;
       }
 
