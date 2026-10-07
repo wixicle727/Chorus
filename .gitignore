@@ -21,6 +21,11 @@ npm-debug.log*
 # Release staging, produced by the release workflow and tools/build
 build/
 
+# A locally built executable. Release binaries are attached to GitHub releases, never
+# committed; keeping them out of git avoids an ~82 MB object in the history.
+Chorus.exe
+Chorus-*-Setup.exe
+
 # npm cache, when a restricted machine has to keep it inside the project
 .npm-cache/
 

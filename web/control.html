@@ -1353,9 +1353,9 @@ function renderState(next) {
   if (document.activeElement !== $('offsetMs')) $('offsetMs').value = lyrics.offsetMs ?? 0;
 
   /**
-   * A player can report the track but withhold the timeline. foobar2000 does
-   * this without its media-control component, and the symptom is that lyrics are
-   * found but never advance — which looks like a Chorus bug unless we say so.
+   * A player can report the track but withhold the timeline. Some do this by default,
+   * and the symptom is that lyrics are found but never advance — which looks like a
+   * Chorus bug unless we say so.
    */
   const timelineWarning = $('timelineWarning');
   if (track && playback.timelineAvailable === false) {
@@ -1363,7 +1363,8 @@ function renderState(next) {
     timelineWarning.innerHTML =
       `<span class="ico">!</span><div><strong>${escapeHtml(track.platformName || 'This player')} is not reporting the track position to Windows.</strong><br>` +
       `Lyrics were found, but they cannot scroll because the playback timeline stays at 0:00. ` +
-      `Enable system media controls in the player — for foobar2000 install the <em>foo_mediacontrol</em> component — then restart it.</div>`;
+      `Enable system media controls (sometimes called SMTC) in the player's own settings and restart it. ` +
+      `Some players expose the track but never the position, and then there is nothing Chorus can do.</div>`;
   } else {
     timelineWarning.hidden = true;
   }

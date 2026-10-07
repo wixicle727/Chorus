@@ -9,7 +9,54 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [1.2.0] — 2026-10-07
 
+### Fixed
+
+- **Quit from the tray did not stop Chorus.** `Find-RunningServer` only accepted a process
+  named `node`, but in an installed build the server *is* the application (`Chorus.exe`),
+  and the orphan fallback filtered on `node` as well — so Quit had nothing to stop.
+
+  It now asks the app to shut down over `/api/shutdown` first, which is the only way it can
+  clean up after itself: it stops the bundled SMTC bridge, where an outright kill would
+  leave it orphaned and still holding port 5000. It then falls back to ending whatever is
+  listening on the port, whatever its process name.
+
+- **The tray icon never appeared in a packaged build.** The helper was being started but
+  exited immediately (code `0`, never reaching its message loop): starting PowerShell from
+  Node with `detached` and ignored stdio does not survive. It is now launched through
+  `launcher/chorus-tray.vbs` with `wscript`, the same path `start.bat` uses.
+
+  Separately, building the icon could kill the whole helper silently — a throwing
+  `New-Object` terminated the script before the tray icon was created, leaving nothing in
+  the log. Icon creation now falls back through the `.ico` on disk, then the icon embedded
+  in the executable (which is what works once installed, where `assets/` is not on disk),
+  then a drawn one.
+
+- **The installer deleted your data on every upgrade.** `[UninstallDelete]` removed
+  `{app}\data` on uninstall *and* every upgrade, which would have silently discarded
+  settings, lyric cache and history. Removal is now an explicit prompt at uninstall time.
+
+### Changed
+
+- **Runtime data lives in the install folder** (`{app}\data`), falling back to
+  `%LOCALAPPDATA%\Chorus\data` only when that is not writable — an all-users install
+  without elevation. One source of truth in `src/core/paths.js`, and the tray helper takes
+  the same directory through `CHORUS_DATA_DIR` rather than guessing.
+
+- **The discontinued `foo_mediacontrol` component is no longer recommended.** The
+  no-timeline guidance now says to enable system media controls in the player's own
+  settings. Players that publish a track but never a position are still listed and
+  supported the same as before.
+
 ### Added
+
+- **A Windows installer.** `Chorus-<version>-Setup.exe`, built with Inno Setup, whose
+  compiler ships inside the `innosetup-compiler` npm package so CI needs no pre-installed
+  tooling. Per-user by default (**no administrator rights**), with Start Menu and optional
+  desktop shortcuts, an optional *Start Chorus when Windows starts* task, and an uninstall
+  that stops a running instance first so nothing stays locked.
+
+  Releases now publish two artifacts: the installer, and the portable zip for anyone who
+  would rather not install anything.
 
 - **Update checking.** The About page asks GitHub for the newest release and says whether
   you are up to date, with the release notes and a direct download link when you are not.

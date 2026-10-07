@@ -69,26 +69,31 @@ Windows SMTC  →  bundled bridge  →  Chorus  →  OBS Browser Source
 | 🈶 **Strong CJK coverage** | NetEase, QQ Music and Kugou alongside LRCLIB — and NetEase/QQ bring translations too. |
 | 🖤 **Not broken by Alt+Tab** | Timer-driven, so lyrics keep scrolling while OBS sits in the background. |
 | 🎛️ **Everything adjustable live** | Font, sizes, colours, alignment, shadow, translation, offset — applied to the running OBS source instantly. |
-| 🪶 **Zero dependencies** | Pure Node standard library and plain HTML/CSS/JS. Nothing to install. |
+| 🔄 **Tells you when there's a new version** | Checks GitHub Releases from the About page. Nothing downloads without you. |
+| 🪶 **Zero dependencies** | Pure Node standard library and plain HTML/CSS/JS. One self-contained `.exe`, with the Node runtime inside it. |
 
 ---
 
 ## Quick start
 
-**1️⃣ Download the release and unzip it**
+**1️⃣ Download the installer**
 
-Grab `Chorus-<version>.zip` from [the releases page](https://github.com/wixicle727/Chorus/releases)
-and unzip it anywhere. Nothing to install — Node.js is inside `Chorus.exe`.
+Grab `Chorus-<version>-Setup.exe` from [the releases page](https://github.com/wixicle727/Chorus/releases)
+and run it. It installs for the current user by default, so **no administrator rights are
+needed**, and everything the app owns lives inside its own folder.
 
-**2️⃣ Run `Chorus.exe`**
+> [!TIP]
+> Prefer not to install anything? Take `Chorus-<version>-portable.zip` instead and run
+> `Chorus.exe` from wherever you unzip it. Node.js is inside the executable either way,
+> so there is nothing to install separately.
 
-That is the whole step. Chorus starts **its own SMTC bridge** on
-`http://127.0.0.1:5000` and stops it again when you quit, so there is no second
-program to install or keep running.
+**2️⃣ Chorus starts in the tray**
 
-A **tray icon** appears near the clock — open the control panel, read the log,
-restart or quit from there. The control panel is at
-<http://127.0.0.1:6727/control>.
+A **tray icon** appears near the clock: open the control panel, read the log, restart or
+quit from there. The control panel is at <http://127.0.0.1:6727/control>.
+
+Chorus starts **its own SMTC bridge** on `http://127.0.0.1:5000` and stops it again when
+you quit, so there is no second program to install or keep running.
 
 > [!TIP]
 > Already running the stock [smtc-bridge](https://github.com/nuttylmao/smtc-bridge)?
@@ -369,9 +374,11 @@ Chorus registers itself under the current user's Run key:
 HKCU\Software\Microsoft\Windows\CurrentVersion\Run  →  Chorus
 ```
 
-No administrator rights are needed, and it affects only your account. At sign-in it
-launches through `launcher\chorus-hidden.vbs`, which starts the tray helper and the
-server as hidden processes — **no console window appears**.
+No administrator rights are needed, and it affects only your account. At sign-in the
+executable starts hidden and shows its tray icon — **no console window appears**.
+
+The **installer** can also set this up for you: the *Start Chorus when Windows starts*
+task on the setup screen writes the same Run-key entry.
 
 | Option | Effect |
 |---|---|
@@ -462,6 +469,7 @@ test now.
 | `POST` | `/api/probe` | Search for an arbitrary track (does not change playback) |
 | `GET` | `/api/lrc` | Download current lyrics as `.lrc` |
 | `GET` / `POST` | `/api/autostart` | Read / change the Start-with-Windows registration |
+| `GET` | `/api/update` | Newest GitHub release versus the running version (`?force=1` bypasses the cache) |
 | `GET` | `/api/log` | Tail of the background server log |
 | `POST` | `/api/shutdown` | Stop the server (used by `--quit` and the tray) |
 | `WS` | `/ws?role=overlay\|control` | Live state push |
@@ -483,8 +491,9 @@ The SMTC bridge is bundled and started by Chorus, so there is no second program.
 - **Node.js 22+** — developed and verified on Node 22. Only needed if you run
   `node src/index.js` or build the executable yourself
 - **Python 3 with Pillow** — only to regenerate the logo (`npm run logo`)
-- **`npm install`** — only for `postject`, the single build-time dependency used to
-  build the `.exe`; the app itself has zero runtime dependencies
+- **`npm install`** — build-time only: `postject` (embeds the app into the `.exe`) and
+  `innosetup-compiler` (builds the installer). The app itself has **zero runtime
+  dependencies**, and the installer neither needs nor installs Node.js
 
 ---
 
@@ -492,7 +501,8 @@ The SMTC bridge is bundled and started by Chorus, so there is no second program.
 
 ### Players that do not report a timeline
 
-A player can publish a track to Windows **without** a track length or position.
+A player can publish a track to Windows **without** a track length or position. Some do
+this by default.
 
 The symptom is specific and worth recognising: **lyrics are found but never
 scroll**, because the position stays at `0:00` forever.
@@ -501,8 +511,10 @@ scroll**, because the position stays at `0:00` forever.
 > Chorus detects this and shows an orange `no timeline` tag with an explanation, so
 > it does not look like a lyrics problem.
 
-- **For those players** — enable "system media controls" / "SMTC" in the player's own
-  settings if it has such an option.
+**What to do:** enable "system media controls" / "SMTC" in the player's own settings if
+it offers such an option, then restart the player. Some players expose metadata but not
+the timeline, in which case there is nothing Chorus can do — the position simply is not
+published.
 
 Windows itself only exposes position at roughly one-second granularity, so sync is
 line-accurate rather than frame-accurate even with a cooperative player.
