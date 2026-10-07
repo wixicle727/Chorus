@@ -18,8 +18,12 @@ desktop.ini
 node_modules/
 npm-debug.log*
 
-# Release staging, produced by the release workflow and tools/build
-build/
+# Release staging, produced by the release workflow and tools/build.
+#
+# Anchored to the repository root with a leading slash on purpose. A bare `build/`
+# matches at ANY depth, which also swallowed `tools/build/` — the build scripts
+# themselves — so they were never committed and CI had nothing to run.
+/build/
 
 # A locally built executable. Release binaries are attached to GitHub releases, never
 # committed; keeping them out of git avoids an ~82 MB object in the history.
