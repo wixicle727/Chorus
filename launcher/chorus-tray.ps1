@@ -29,10 +29,25 @@ Add-Type -AssemblyName System.Drawing
 if (-not $Root -or -not (Test-Path $Root)) {
   $Root = Split-Path -Parent $PSScriptRoot
 }
-$logDir = Join-Path $Root 'data\logs'
+
+# The data folder must match the app's, or the tray would read a different config and
+# write a different log. CHORUS_DATA_DIR is authoritative when the app set it; otherwise
+# an existing data/ beside the app wins (portable installs), then %LOCALAPPDATA%.
+$dataDir = $env:CHORUS_DATA_DIR
+if (-not $dataDir) {
+  $portable = Join-Path $Root 'data'
+  if (Test-Path $portable) {
+    $dataDir = $portable
+  } elseif ($env:LOCALAPPDATA) {
+    $dataDir = Join-Path $env:LOCALAPPDATA 'Chorus\data'
+  } else {
+    $dataDir = $portable
+  }
+}
+$logDir = Join-Path $dataDir 'logs'
 $logFile = Join-Path $logDir 'chorus.log'
-$pidFile = Join-Path $Root 'data\.chorus.pid'
-$configFile = Join-Path $Root 'data\config.json'
+$pidFile = Join-Path $dataDir '.chorus.pid'
+$configFile = Join-Path $dataDir 'config.json'
 
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
 
@@ -69,23 +84,54 @@ function Write-Log {
 
 # ------------------------------------------------------------------ tray icon
 
+function Get-IconFromExecutable {
+  <#
+    .SYNOPSIS
+      Pull the icon straight out of the running executable.
+
+    .NOTES
+      This is the reliable path for an installed build: the app's `assets/` folder is
+      not on disk (it is embedded in the executable), but the executable itself carries
+      the Chorus icon, so extracting it always works.
+
+      The node.exe case is rejected: before the icon is stamped, a development build
+      would otherwise show Node's own icon in the tray.
+  #>
+  try {
+    $exe = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+    if (-not $exe) { return $null }
+
+    $base = [System.IO.Path]::GetFileNameWithoutExtension($exe)
+    if ($base -ieq 'node' -or $base -ieq 'powershell' -or $base -ieq 'pwsh') { return $null }
+
+    $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($exe)
+    if ($icon) { return $icon }
+  } catch {
+    # Fall through to the next strategy.
+  }
+  return $null
+}
+
 function New-ChorusIcon {
-  # Prefer the generated brand icon. It is the same mark the panel and README use,
-  # and it is already the right sizes for the tray (the .ico carries 16-256 px, so
-  # Windows picks the crisp one instead of scaling a single bitmap).
+  # Strategies, best first:
+  #   1. the brand .ico on disk (a source checkout, or the unpacked build)
+  #   2. the icon embedded in the executable (an installed build)
+  #   3. drawn at runtime (last resort, so a tray icon always appears)
   #
-  # Several locations are tried because this helper runs from different places: beside
-  # the app in a source checkout (this script is in launcher/, so assets/ is its
-  # sibling's child), and from Chorus's unpacked cache directory when running as a
-  # bundled executable. -Root is passed by the app and is authoritative when present.
+  # Each step is guarded because a failure here previously killed the whole helper
+  # silently: the process exited without ever creating the NotifyIcon, so no tray icon
+  # appeared and nothing was logged.
+
   $assetRoots = @()
   if ($Root) { $assetRoots += (Join-Path $Root 'assets') }
   $assetRoots += (Join-Path (Split-Path -Parent $PSScriptRoot) 'assets')
   $assetRoots += (Join-Path $PSScriptRoot 'assets')
 
   foreach ($assets in $assetRoots) {
-    if (-not $assets -or -not (Test-Path $assets)) { continue }
+    if (-not $assets) { continue }
     try {
+      if (-not (Test-Path $assets)) { continue }
+
       $icoPath = Join-Path $assets 'chorus.ico'
       if (Test-Path $icoPath) {
         return (New-Object System.Drawing.Icon($icoPath))
@@ -99,10 +145,12 @@ function New-ChorusIcon {
         return $icon
       }
     } catch {
-      # Try the next location, then fall through to the drawn version: a missing or
-      # unreadable asset file must never leave the user with no tray icon at all.
+      # Try the next location.
     }
   }
+
+  $fromExe = Get-IconFromExecutable
+  if ($fromExe) { return $fromExe }
 
   # Fallback: drawn at runtime, so a source checkout with no assets/ still works.
   $size = 32
@@ -132,7 +180,13 @@ function New-ChorusIcon {
 }
 
 $notify = New-Object System.Windows.Forms.NotifyIcon
-$notify.Icon = New-ChorusIcon
+# Guarded: a failure building the icon used to terminate the whole helper silently, so
+# no tray icon appeared and nothing was written to the log.
+try {
+  $notify.Icon = New-ChorusIcon
+} catch {
+  Write-Log "could not build the tray icon: $($_.Exception.Message)"
+}
 $notify.Text = "Chorus - lyrics for OBS"
 
 # ------------------------------------------------------------------- the server

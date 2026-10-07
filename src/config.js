@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -292,7 +293,33 @@ function deepMerge(base, override) {
   return out;
 }
 
-const CONFIG_PATH = path.join(ROOT, 'data', 'config.json');
+/**
+ * Where `config.json` lives.
+ *
+ * Resolved here rather than importing the shared data-directory helper, because
+ * `paths.js` imports ROOT from this module — importing back would be circular. The
+ * order of preference must match `paths.js` exactly or settings would be read from one
+ * place and written to another:
+ *
+ *   CHORUS_DATA_DIR, or an existing data/ beside the app (portable installs and
+ *   upgrades), otherwise %LOCALAPPDATA%\Chorus\data.
+ */
+function resolveDataDir() {
+  const override = process.env.CHORUS_DATA_DIR;
+  if (override) return override;
+
+  const legacy = path.join(ROOT, 'data');
+  if (fs.existsSync(legacy)) return legacy;
+
+  try {
+    const base = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    return path.join(base, 'Chorus', 'data');
+  } catch {
+    return legacy;
+  }
+}
+
+const CONFIG_PATH = path.join(resolveDataDir(), 'config.json');
 
 export function configPath() {
   return CONFIG_PATH;

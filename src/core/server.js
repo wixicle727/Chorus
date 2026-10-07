@@ -35,6 +35,7 @@ import path from 'node:path';
 import { ROOT, VERSION, loadConfig, saveConfig, applyPatch, PLATFORMS, PROVIDER_LABELS } from '../config.js';
 import { WebSocketServer } from './websocket.js';
 import { webAssets } from './embedded.js';
+import { LOG_DIR } from './paths.js';
 import { toLrcText } from './lrc.js';
 import { getAutostartStatus, enableAutostart, disableAutostart } from './autostart.js';
 
@@ -249,7 +250,7 @@ export function createServer({ engine, store, getConfig, setConfig, onShutdown =
       if (pathname === '/api/log' && method === 'GET') {
         // Tail of the launcher log, so the control panel can show what the
         // hidden background server has been saying.
-        const logPath = path.join(ROOT, 'data', 'logs', 'chorus.log');
+        const logPath = path.join(LOG_DIR, 'chorus.log');
         const requestedLines = Number(url.searchParams.get('lines') ?? 200);
         const maxLines = Math.min(Math.max(requestedLines || 200, 10), 2000);
         if (!fs.existsSync(logPath)) {

@@ -29,6 +29,8 @@
     "start:tray": "node src/index.js --tray",
     "stop": "node src/index.js --quit",
     "build:exe": "node tools/build/build-exe.mjs",
+    "build:installer": "node tools/build/build-installer.mjs",
+    "build": "node tools/build/build-exe.mjs && node tools/build/build-installer.mjs",
     "logo": "python tools/logo/make_logo.py",
     "test": "node test/run.js",
     "test:offline": "node test/run.js --offline",
@@ -42,6 +44,7 @@
     "win32"
   ],
   "devDependencies": {
+    "innosetup-compiler": "^6.3.1",
     "postject": "^1.0.0-alpha.6",
     "rcedit": "^5.0.2"
   }

@@ -33,6 +33,7 @@ import { createServer } from './core/server.js';
 import { getAutostartStatus } from './core/autostart.js';
 import { BridgeProcess } from './core/bridge-process.js';
 import { embeddedHome } from './core/embedded.js';
+import { PID_FILE as PID_PATH, DATA_DIR } from './core/paths.js';
 import { log, openLogFile, getLogPath } from './core/log.js';
 
 const args = process.argv.slice(2);
@@ -74,7 +75,7 @@ const portOverride = option('--port', null);
 if (portOverride) config = { ...config, server: { ...config.server, port: Number(portOverride) } };
 
 /** Written so the tray helper can adopt (and later stop) a server it did not start. */
-const PID_FILE = path.join(ROOT, 'data', '.chorus.pid');
+const PID_FILE = PID_PATH;
 
 function writePidFile() {
   try {
@@ -196,34 +197,43 @@ function startTrayHelper(port) {
   // In a packaged build the app runs from the unpacked cache directory, so the helper
   // is there rather than beside the executable. `embeddedHome()` reports that location.
   const home = embeddedHome();
-  const candidates = [path.join(home ?? '', 'launcher', 'chorus-tray.ps1'), path.join(ROOT, 'launcher', 'chorus-tray.ps1')];
-  const script = candidates.find((candidate) => fs.existsSync(candidate));
+  const roots = [home, ROOT].filter(Boolean);
+  const script = roots.map((r) => path.join(r, 'launcher', 'chorus-tray.ps1')).find((c) => fs.existsSync(c));
   if (!script) {
-    log.warn(`  Tray helper not found. Looked in: ${candidates.join(', ')}`);
+    log.warn(`  Tray helper not found under: ${roots.join(', ')}`);
     return;
   }
+
+  // Prefer the .vbs launcher. Starting PowerShell directly from Node with detached +
+  // ignored stdio was measured to exit immediately, so the tray never appeared; wscript
+  // is a GUI host and gives the helper an independent, hidden process that stays up.
+  const vbs = roots.map((r) => path.join(r, 'launcher', 'chorus-tray.vbs')).find((c) => fs.existsSync(c));
+  const scriptRoot = roots.find((r) => fs.existsSync(path.join(r, 'launcher', 'chorus-tray.ps1'))) ?? ROOT;
+  const wscript = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'wscript.exe');
   const shell = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+
+  const command = vbs && fs.existsSync(wscript) ? wscript : fs.existsSync(shell) ? shell : 'powershell.exe';
+  const commandArgs =
+    command === wscript
+      ? [vbs, script, scriptRoot, String(port)]
+      : ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script, '-Root', scriptRoot, '-Port', String(port), '-NoServer'];
+
   try {
-    spawn(
-      fs.existsSync(shell) ? shell : 'powershell.exe',
-      [
-        '-NoProfile',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-WindowStyle',
-        'Hidden',
-        '-File',
-        script,
-        // The helper finds its icon under this root. In a packaged build that is the
-        // unpacked directory, not the executable's folder (which has no assets/).
-        '-Root',
-        home ?? ROOT,
-        '-Port',
-        String(port),
-        '-NoServer',
-      ],
-      { detached: true, stdio: 'ignore', windowsHide: true },
-    ).unref();
+    const child = spawn(command, commandArgs, {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      // The helper resolves the same data folder as the app, rather than guessing.
+      env: { ...process.env, CHORUS_DATA_DIR: DATA_DIR },
+    });
+    child.unref();
+    log.tagged(`Tray helper launched via ${path.basename(command)} (pid ${child.pid})`);
+    child.on('error', (err) => log.warn(`  Tray helper failed: ${err.message}`));
+    // wscript exits as soon as it has started PowerShell, so only a non-zero code from
+    // the direct-PowerShell path is interesting.
+    child.on('exit', (code) => {
+      if (command !== wscript && code !== 0) log.warn(`  Tray helper exited early with code ${code}`);
+    });
   } catch (err) {
     log.warn(`  Could not start the tray helper: ${err.message}`);
   }

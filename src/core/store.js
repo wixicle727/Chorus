@@ -14,16 +14,10 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT } from '../config.js';
-
-const DATA_DIR = path.join(ROOT, 'data');
-const CACHE_DIR = path.join(DATA_DIR, 'cache');
-const INDEX_PATH = path.join(CACHE_DIR, 'index.json');
-const HISTORY_PATH = path.join(DATA_DIR, 'history.json');
-const OVERRIDES_PATH = path.join(DATA_DIR, 'overrides.json');
+import { DATA_DIR, CACHE_DIR, INDEX_PATH, HISTORY_PATH, OVERRIDES_PATH, ensureDataDirs } from './paths.js';
 
 function ensureDirs() {
-  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  ensureDataDirs();
 }
 
 function readJson(file, fallback) {
