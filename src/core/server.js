@@ -225,6 +225,17 @@ export function createServer({ engine, store, getConfig, setConfig, onShutdown =
         serveStatic(res, 'overlay.html');
         return;
       }
+      // The universal now-playing overlay: cover art, title, artist and progress.
+      // Both spellings are accepted because "now-playing" reads naturally in OBS and
+      // "nowplaying" matches the file name.
+      if (
+        method === 'GET' &&
+        (pathname === '/nowplaying' || pathname === '/nowplaying/' ||
+         pathname === '/now-playing' || pathname === '/now-playing/')
+      ) {
+        serveStatic(res, 'nowplaying.html');
+        return;
+      }
 
       // -------------------------------- api --------------------------------
       if (pathname === '/api/health') {

@@ -79,6 +79,7 @@ for (const [path, expectType, needle] of [
   ['/css/control.css', 'text/css', '--accent:'],
   ['/overlay', 'text/html', 'id="list"'],
   ['/control', 'text/html', 'id="page-now"'],
+  ['/nowplaying', 'text/html', 'id="card"'],
 ]) {
   const r = await get(path);
   ok(
@@ -86,6 +87,66 @@ for (const [path, expectType, needle] of [
     r.status === 200 && r.type?.includes(expectType.split('/')[1]) && r.text.includes(needle),
     `status=${r.status} type=${r.type}`,
   );
+}
+
+section('Now playing overlay');
+{
+  // Both spellings resolve, since "now-playing" reads naturally in OBS while the file is
+  // nowplaying.html.
+  const dashed = await get('/now-playing');
+  ok('/now-playing is an alias for /nowplaying', dashed.status === 200 && dashed.text.includes('id="card"'));
+
+  const page = (await get('/nowplaying')).text;
+  // The four things the feature is for.
+  for (const [what, needle] of [
+    ['cover art', 'id="cover-img"'],
+    ['title', 'id="title"'],
+    ['artist', 'id="artist"'],
+    ['progress bar', 'id="fill"'],
+  ]) {
+    ok(`renders the ${what}`, page.includes(needle));
+  }
+
+  ok('shows elapsed and total time', page.includes('id="elapsed"') && page.includes('id="duration"'));
+  ok('has a paused indicator', page.includes('id="pause-badge"'));
+  ok('paints no background of its own (transparent for OBS)', /background:\s*transparent/.test(page));
+  // The progress bar must not be driven by requestAnimationFrame: Chromium suspends it
+  // for a browser source OBS is not rendering, which would freeze the bar.
+  ok('drives the progress bar with a timer, not rAF', page.includes('setInterval(tickProgress') && !/requestAnimationFrame\(\s*tickProgress/.test(page));
+  ok('connects to the local socket', page.includes('/ws?role=overlay'));
+  // The cover is a data: URL from SMTC, which only loads if the scheme is allowed.
+  ok('allows data: images', /img-src[^;]*data:/i.test(page) || !/Content-Security-Policy/i.test(page));
+  ok('reads its settings from nowPlayingSettings', page.includes('nowPlayingSettings'));
+  ok('survives a silent socket with a watchdog', page.includes('SILENCE_TIMEOUT_MS'));
+}
+
+section('Hide when there are no lyrics');
+{
+  // Feature: render nothing at all for a track without lyrics, rather than the notice.
+  const overlay = (await get('/overlay')).text;
+  ok('the overlay knows about the option', overlay.includes('hideWhenNoLyrics'));
+  ok('the option hides the whole stage', overlay.includes('stageEl.style.visibility'));
+
+  const control = (await get('/control')).text;
+  ok('the panel exposes a toggle', control.includes('id="hideWhenNoLyrics"'));
+
+  const config = await (await fetch(`${BASE}/api/config`)).json();
+  ok('config carries a default', typeof config.overlay.hideWhenNoLyrics === 'boolean', JSON.stringify(config.overlay.hideWhenNoLyrics));
+
+  // The now-playing overlay has its own settings, delivered separately so the lyrics
+  // overlay's flat contract is untouched.
+  const state = await (await fetch(`${BASE}/api/state`)).json();
+  ok('the snapshot carries now playing settings', Boolean(state.nowPlayingSettings));
+  for (const key of ['showCover', 'showTitle', 'showArtist', 'showProgress', 'widthPx', 'textAlign']) {
+    ok(`nowPlayingSettings.${key} is present`, state.nowPlayingSettings?.[key] !== undefined);
+  }
+  ok('the lyrics settings contract is unchanged', typeof state.settings?.alignment === 'string');
+
+  // The panel's own DOM contract is checked generally below; these are the specific
+  // controls this feature added.
+  for (const id of ['npShowCover', 'npShowTitle', 'npShowArtist', 'npShowProgress', 'npShowPausedState', 'npHideWhenIdle', 'npWidth', 'npFontSize', 'npRadius', 'npTextAlign', 'nowPlayingUrl', 'copyNowPlayingUrl', 'openNowPlaying']) {
+    ok(`the panel has #${id}`, control.includes(`id="${id}"`));
+  }
 }
 
 section('Brand assets');

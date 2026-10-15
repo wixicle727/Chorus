@@ -69,6 +69,8 @@ Windows SMTC  →  bundled bridge  →  Chorus  →  OBS Browser Source
 | 🈶 **Strong CJK coverage** | NetEase, QQ Music and Kugou alongside LRCLIB — and NetEase/QQ bring translations too. |
 | 🖤 **Not broken by Alt+Tab** | Timer-driven, so lyrics keep scrolling while OBS sits in the background. |
 | 🎛️ **Everything adjustable live** | Font, sizes, colours, alignment, shadow, translation, offset — applied to the running OBS source instantly. |
+| 💿 **A second overlay for "what's playing"** | Cover art, title, artist and progress. Works for any player, and for tracks that have no lyrics at all. |
+| 🙈 **Silent when there is nothing to show** | Optionally render nothing at all for a track without lyrics, instead of a "no lyrics found" notice. |
 | 🔄 **Tells you when there's a new version** | Checks GitHub Releases from the About page. Nothing downloads without you. |
 | 🪶 **Zero dependencies** | Pure Node standard library and plain HTML/CSS/JS. One self-contained `.exe`, with the Node runtime inside it. |
 
@@ -107,6 +109,12 @@ In OBS: **Sources → + → Browser**, then paste:
 ```
 http://127.0.0.1:6727/overlay
 ```
+
+> [!TIP]
+> There is a second, optional overlay that shows the **cover, title, artist and progress**
+> instead of lyrics — handy for tracks with no lyrics, or as a permanent "what's playing"
+> card. Add another browser source pointing at `http://127.0.0.1:6727/nowplaying`, sized
+> around 600 × 140.
 
 **4️⃣ Pick your platform**
 
@@ -425,13 +433,13 @@ npm run test:engine   # engine timing against a fake smtc-bridge
 npm run test:ui       # pages, DOM contract, theme tokens and the JSON API
 ```
 
-**239 checks** across three suites:
+**278 checks** across three suites:
 
 | Suite | Checks | Covers |
 |---|---|---|
 | `test/run.js` | 133 | LRC parsing (fraction widths, multi-timestamp lines, offset headers, word tags, CRLF), artist splitting, untimed lyrics → estimated timings, text normalisation, scoring, the title gate, version demotion, score-first selection, the fallback policy, session selection, **stream-title detection** (so a song called `!NVADE SHOW!` is not mistaken for a Twitch tab), smtc-bridge payloads |
 | `test/engine.js` | 18 | Runs the real engine against a fake smtc-bridge: pausing is broadcast, position then freezes, no socket spam, resuming is broadcast, `refresh` bypasses a cached negative result, and an idle track still emits a heartbeat |
-| `test/ui.js` | 88 | Every page and asset served, every element the panel script looks up exists, overlay carousel/transparency contract, **no `requestAnimationFrame` in the overlay loop**, an overlay client ignoring pings stays connected, JSON API, that no colour uses the Windows `#AARRGGBB` byte order, and that the brand icons are served and linked |
+| `test/ui.js` | 127 | Every page and asset served, every element the panel script looks up exists, overlay carousel/transparency contract, **no `requestAnimationFrame` in the overlay loop**, an overlay client ignoring pings stays connected, JSON API, that no colour uses the Windows `#AARRGGBB` byte order, and that the brand icons are served and linked |
 
 `npm test` additionally runs live lookups: a Japanese, an English and a Chinese
 track, plus a deliberately unmatchable one, and smoke-tests each provider.
@@ -473,6 +481,20 @@ test now.
 | `GET` | `/api/log` | Tail of the background server log |
 | `POST` | `/api/shutdown` | Stop the server (used by `--quit` and the tray) |
 | `WS` | `/ws?role=overlay\|control` | Live state push |
+
+### Pages
+
+| Path | What it is |
+|---|---|
+| `/overlay` | The lyric overlay. Transparent; size the OBS source 1200 × 300 |
+| `/nowplaying` | The now-playing card: cover, title, artist, progress. Transparent; size around 600 × 140 |
+| `/control` | The control panel |
+
+The now-playing overlay accepts URL overrides so one browser source can be tuned without
+editing the config: `?cover=0`, `?title=1`, `?artist=1`, `?progress=0`, `?times=0`,
+`?paused=0`, `?hideWhenIdle=0`, `?width=640`, `?fontSize=24`, `?textAlign=center`,
+`?borderRadius=12`, `?colorTitle=%23ffffff`, `?colorArtist=`, `?colorProgress=`,
+`?colorAccent=%234cc2ff`, and `?debug=1`.
 
 ---
 

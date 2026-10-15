@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chorus — Now Playing</title>
+<link rel="icon" href="/assets/chorus.ico" sizes="any" />
+<!--
+  Universal "now playing" overlay: cover art, title, artist and a progress bar.
+
+  Deliberately transparent like the lyrics overlay, so OBS composites the card over the
+  scene. Modelled on nutty.gg's now-playing widget (the standard theme): the cover art is
+  also blurred into the card background, which is what makes the card feel like it belongs
+  to the artwork rather than sitting on top of it.
+
+  Universal by construction: it reads whatever session Chorus has selected, so it follows
+  the configured primary platform (Spotify, Apple Music, a browser, anything publishing a
+  Windows media session) with no per-platform code.
+
+  Independent of the lyrics overlay — either, both or neither can be added as a browser
+  source. It asks the server for the now-playing slice with ?scope=now-playing, so the
+  lyric document is never sent to it.
+-->
+<style>
+  :root {
+    --card-radius: 20px;
+    --component-radius: 15px;
+    --font-family: "Segoe UI", "Microsoft YaHei UI", "Meiryo", system-ui, sans-serif;
+    --font-size: 20px;
+    --align: left;
+    --color-title: #ffffff;
+    --color-artist: #e0e0e0;
+    --color-progress: #ffffff;
+    --color-accent: #4cc2ff;
+    --show-cover: flex;
+    --width: 500px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    font-family: var(--font-family);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Centres the card in whatever size the OBS browser source is. */
+  #stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #card {
+    width: var(--width);
+    max-width: 100%;
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 0.75em;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+  #card.ready { opacity: 1; }
+  /* "Hide when nothing is playing" simply keeps the card transparent. */
+  #card.hidden { opacity: 0; }
+
+  /* ---------------------------------------------------------------- cover art */
+
+  #cover {
+    position: relative;
+    height: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: var(--component-radius);
+    overflow: hidden;
+    display: var(--show-cover);
+    flex-shrink: 0;
+    background: #1b1b1f;
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.45);
+  }
+
+  #cover-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: opacity 0.4s ease, filter 0.4s ease;
+  }
+
+  /* A missing cover must not leave a broken-image glyph on screen. */
+  #cover-img.empty { opacity: 0; }
+
+  #pause-badge {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: 2;
+  }
+  #pause-badge svg { width: 42%; height: 42%; fill: rgba(255, 255, 255, 0.92); }
+  #cover.paused #pause-badge { opacity: 1; }
+  #cover.paused #cover-img { filter: brightness(0.45); }
+
+  /* -------------------------------------------------------------------- info */
+
+  #info {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.35em;
+    border-radius: var(--card-radius);
+    overflow: hidden;
+    padding: 0.85em 1.1em;
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.45);
+  }
+
+  /* The blurred artwork fills the card. Two layers so a track change cross-fades
+     instead of flashing black. */
+  #bg, #bg-next {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center;
+    filter: blur(12px) brightness(0.32) saturate(1.25);
+    transform: scale(1.15);
+    transition: opacity 0.5s ease;
+  }
+  #bg { z-index: 0; }
+  #bg-next { z-index: 0; opacity: 0; }
+
+  /* Without artwork the card still needs a readable surface. */
+  #scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(28, 28, 33, 0.94), rgba(16, 16, 19, 0.94));
+    z-index: 1;
+  }
+
+  #content {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3em;
+    text-align: var(--align);
+    min-width: 0;
+  }
+
+  .label {
+    white-space: nowrap;
+    overflow: hidden;
+    /* Long titles scroll rather than being clipped with an ellipsis, and the
+       animation is paused when the text already fits. */
+    position: relative;
+  }
+  .label .inner {
+    display: inline-block;
+    white-space: nowrap;
+    will-change: transform;
+  }
+  .label.scrolling .inner { animation: marquee var(--marquee-duration, 12s) linear infinite; }
+
+  @keyframes marquee {
+    0%, 8% { transform: translateX(0); }
+    92%, 100% { transform: translateX(var(--marquee-shift, 0)); }
+  }
+
+  #title {
+    font-size: 1.15em;
+    font-weight: 600;
+    color: var(--color-title);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  }
+
+  #artist {
+    font-size: 0.85em;
+    font-weight: 400;
+    color: var(--color-artist);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  }
+
+  /* ---------------------------------------------------------------- progress */
+
+  #progress {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    margin-top: 0.25em;
+  }
+  #progress.off { display: none; }
+
+  .time {
+    font-size: 0.7em;
+    color: var(--color-progress);
+    font-variant-numeric: tabular-nums;
+    opacity: 0.85;
+    flex-shrink: 0;
+  }
+  .time.off { display: none; }
+
+  #track {
+    position: relative;
+    flex: 1;
+    height: 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.22);
+    overflow: hidden;
+  }
+
+  #fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 0;
+    border-radius: 3px;
+    background: var(--color-accent);
+    /* No transition on width: the bar is advanced by a timer every frame, and a
+       transition would lag behind and look rubbery. */
+  }
+
+  #debug {
+    position: absolute;
+    left: 6px;
+    bottom: 4px;
+    z-index: 5;
+    font-size: 11px;
+    font-family: ui-monospace, Consolas, monospace;
+    color: rgba(255, 255, 255, 0.75);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    display: none;
+    pointer-events: none;
+  }
+  body.show-debug #debug { display: block; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <div id="card">
+    <div id="cover">
+      <img id="cover-img" class="empty" alt="" />
+      <div id="pause-badge">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+      </div>
+    </div>
+    <div id="info">
+      <div id="bg"></div>
+      <div id="bg-next"></div>
+      <div id="scrim"></div>
+      <div id="content">
+        <div class="label" id="title"><span class="inner">&nbsp;</span></div>
+        <div class="label" id="artist"><span class="inner">&nbsp;</span></div>
+        <div id="progress">
+          <div class="time" id="elapsed">0:00</div>
+          <div id="track"><div id="fill"></div></div>
+          <div class="time" id="duration">0:00</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="debug"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  const params = new URLSearchParams(location.search);
+  const bool = (name, fallback) => {
+    if (!params.has(name)) return fallback;
+    const v = params.get(name);
+    return v === '1' || v === 'true' || v === 'yes';
+  };
+  const num = (name, fallback) => {
+    const v = Number(params.get(name));
+    return Number.isFinite(v) && v > 0 ? v : fallback;
+  };
+  const color = (name, fallback) => {
+    const v = params.get(name);
+    return v && /^#[0-9a-f]{3,8}$/i.test(v) ? v : fallback;
+  };
+
+  // URL overrides so a single OBS source can be tuned without touching config.json.
+  const OVERRIDES = {};
+  if (params.has('width')) OVERRIDES.widthPx = num('width', 500);
+  if (params.has('fontSize')) OVERRIDES.fontSizePx = num('fontSize', 20);
+  if (params.has('textAlign')) OVERRIDES.textAlign = params.get('textAlign');
+  if (params.has('borderRadius')) OVERRIDES.borderRadiusPx = num('borderRadius', 20);
+  for (const [key, name] of [
+    ['showTitle', 'title'], ['showArtist', 'artist'], ['showProgress', 'progress'],
+    ['showCover', 'cover'], ['showTimes', 'times'], ['showPausedState', 'paused'],
+    ['hideWhenIdle', 'hideWhenIdle'],
+  ]) {
+    if (params.has(name)) OVERRIDES[key] = bool(name, true);
+  }
+  for (const [key, name] of [
+    ['colorTitle', 'colorTitle'], ['colorArtist', 'colorArtist'],
+    ['colorProgress', 'colorProgress'], ['colorAccent', 'colorAccent'],
+  ]) {
+    if (params.has(name)) OVERRIDES[key] = color(name, '#ffffff');
+  }
+
+  const DEFAULTS = {
+    showTitle: true, showArtist: true, showProgress: true, showCover: true,
+    showTimes: true, showPausedState: true, hideWhenIdle: true,
+    widthPx: 500, fontSizePx: 20, textAlign: 'left', borderRadiusPx: 20,
+    colorTitle: '#ffffff', colorArtist: '#e0e0e0', colorProgress: '#ffffff', colorAccent: '#4cc2ff',
+  };
+
+  const SHOW_DEBUG = bool('debug', false);
+
+  const stageEl = document.getElementById('stage');
+  const cardEl = document.getElementById('card');
+  const coverEl = document.getElementById('cover');
+  const coverImgEl = document.getElementById('cover-img');
+  const bgEl = document.getElementById('bg');
+  const bgNextEl = document.getElementById('bg-next');
+  const titleEl = document.getElementById('title');
+  const titleInnerEl = titleEl.querySelector('.inner');
+  const artistEl = document.getElementById('artist');
+  const artistInnerEl = artistEl.querySelector('.inner');
+  const progressEl = document.getElementById('progress');
+  const elapsedEl = document.getElementById('elapsed');
+  const durationEl = document.getElementById('duration');
+  const fillEl = document.getElementById('fill');
+  const debugEl = document.getElementById('debug');
+
+  if (SHOW_DEBUG) document.body.classList.add('show-debug');
+
+  let settings = { ...DEFAULTS, ...OVERRIDES };
+  let track = null;
+  let playback = { playing: false, positionMs: 0, durationMs: 0, timelineAvailable: false };
+
+  /** Local clock so the bar advances smoothly between the 500 ms server ticks. */
+  let anchor = { positionMs: 0, at: performance.now(), playing: false };
+  let currentCoverUrl = null;
+
+  function formatTime(ms) {
+    if (!Number.isFinite(ms) || ms < 0) return '0:00';
+    const total = Math.floor(ms / 1000);
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+  }
+
+  /** Where the playhead is now, allowing for the time since the last server tick. */
+  function positionNow() {
+    if (!anchor.playing) return anchor.positionMs;
+    return anchor.positionMs + (performance.now() - anchor.at);
+  }
+
+  /**
+   * Scroll a line only when it is wider than its box.
+   *
+   * A CSS animation on every line would slide short titles around for no reason, so the
+   * overflow is measured and the animation applied only when it is needed.
+   */
+  function layoutLabel(el, innerEl, text) {
+    if (innerEl.textContent !== text) innerEl.textContent = text;
+
+    el.classList.remove('scrolling');
+    innerEl.style.removeProperty('--marquee-shift');
+    innerEl.style.removeProperty('--marquee-duration');
+
+    const overflow = innerEl.scrollWidth - el.clientWidth;
+    if (overflow <= 1) return;
+
+    // Travel the overflow distance plus a little, then pause before repeating.
+    innerEl.style.setProperty('--marquee-shift', `-${overflow + 24}px`);
+    const duration = Math.max(6, (overflow + 24) / 28);
+    innerEl.style.setProperty('--marquee-duration', `${duration}s`);
+    el.classList.add('scrolling');
+  }
+
+  function applySettings() {
+    const root = document.documentElement.style;
+    root.setProperty('--width', `${settings.widthPx}px`);
+    root.setProperty('--font-size', `${settings.fontSizePx}px`);
+    root.setProperty('--card-radius', `${settings.borderRadiusPx}px`);
+    root.setProperty('--component-radius', `${Math.round(settings.borderRadiusPx * 0.75)}px`);
+    root.setProperty('--align', settings.textAlign || 'left');
+    root.setProperty('--color-title', settings.colorTitle);
+    root.setProperty('--color-artist', settings.colorArtist);
+    root.setProperty('--color-progress', settings.colorProgress);
+    root.setProperty('--color-accent', settings.colorAccent);
+    root.setProperty('--show-cover', settings.showCover ? 'flex' : 'none');
+    document.body.style.fontSize = `${settings.fontSizePx}px`;
+
+    titleEl.style.display = settings.showTitle ? '' : 'none';
+    artistEl.style.display = settings.showArtist ? '' : 'none';
+    progressEl.classList.toggle('off', !settings.showProgress);
+    elapsedEl.classList.toggle('off', !settings.showTimes);
+    durationEl.classList.toggle('off', !settings.showTimes);
+  }
+
+  function setCover(url) {
+    if (url === currentCoverUrl) return;
+    currentCoverUrl = url;
+
+    if (!url) {
+      coverImgEl.classList.add('empty');
+      coverImgEl.removeAttribute('src');
+      bgEl.style.backgroundImage = 'none';
+      return;
+    }
+
+    // Preload, so the fade starts only once the new artwork is decodable.
+    const img = new Image();
+    img.onload = () => {
+      coverImgEl.src = url;
+      coverImgEl.classList.remove('empty');
+
+      // Cross-fade the blurred background through the spare layer.
+      bgNextEl.style.backgroundImage = `url("${url}")`;
+      bgNextEl.style.opacity = '1';
+      setTimeout(() => {
+        bgEl.style.backgroundImage = `url("${url}")`;
+        bgNextEl.style.opacity = '0';
+      }, 500);
+    };
+    img.onerror = () => {
+      coverImgEl.classList.add('empty');
+      coverImgEl.removeAttribute('src');
+    };
+    img.src = url;
+  }
+
+  function render(force = false) {
+    const playing = Boolean(playback.playing);
+    const idle = !track;
+
+    // "Hide when nothing is playing" keeps the card fully transparent rather than
+    // showing an empty frame.
+    cardEl.classList.toggle('hidden', Boolean(settings.hideWhenIdle) && idle);
+
+    if (!idle) cardEl.classList.add('ready');
+
+    if (settings.showPausedState) {
+      coverEl.classList.toggle('paused', !playing && !idle);
+    } else {
+      coverEl.classList.remove('paused');
+    }
+
+    if (idle) {
+      layoutLabel(titleEl, titleInnerEl, 'Nothing playing');
+      layoutLabel(artistEl, artistInnerEl, '');
+      fillEl.style.width = '0%';
+      elapsedEl.textContent = '0:00';
+      durationEl.textContent = '0:00';
+      return;
+    }
+
+    layoutLabel(titleEl, titleInnerEl, track.title || 'Unknown title');
+    layoutLabel(artistEl, artistInnerEl, track.artist || '');
+
+    if (track.thumbnail !== undefined) setCover(track.thumbnail || null);
+
+    const position = positionNow();
+    const duration = Number(playback.durationMs) || Number(track.durationMs) || 0;
+
+    // Without a timeline the bar cannot be meaningful; show it empty rather than
+    // pretending the track is at 0:00 forever.
+    const usable = playback.timelineAvailable !== false && duration > 0;
+    if (usable) {
+      const pct = Math.max(0, Math.min(100, (position / duration) * 100));
+      fillEl.style.width = `${pct}%`;
+      elapsedEl.textContent = formatTime(position);
+      durationEl.textContent = formatTime(duration);
+    } else {
+      fillEl.style.width = '0%';
+      elapsedEl.textContent = '0:00';
+      durationEl.textContent = '--:--';
+    }
+
+    if (SHOW_DEBUG) {
+      debugEl.textContent = `${track.platformName || '?'} · ${playing ? 'playing' : 'paused'} · ` +
+        `${Math.round(position / 1000)}s / ${Math.round(duration / 1000)}s · ` +
+        `timeline=${usable ? 'yes' : 'no'}`;
+    }
+  }
+
+  /** Advance the bar between server ticks without re-rendering the text. */
+  function tickProgress() {
+    if (!track) return;
+    const duration = Number(playback.durationMs) || Number(track.durationMs) || 0;
+    if (playback.timelineAvailable === false || duration <= 0) return;
+    const position = positionNow();
+    const pct = Math.max(0, Math.min(100, (position / duration) * 100));
+    fillEl.style.width = `${pct}%`;
+    elapsedEl.textContent = formatTime(position);
+  }
+
+  function handleState(message) {
+    // Settings arrive in their own field so the lyrics overlay's contract is untouched.
+    if (message.nowPlayingSettings) {
+      settings = { ...settings, ...message.nowPlayingSettings, ...OVERRIDES };
+      applySettings();
+    }
+
+    track = message.track ?? null;
+    if (message.playback) {
+      playback = {
+        playing: Boolean(message.playback.playing),
+        positionMs: Number(message.playback.positionMs) || 0,
+        durationMs: Number(message.playback.durationMs) || 0,
+        timelineAvailable: message.playback.timelineAvailable !== false,
+      };
+      // Re-anchor from the server's numbers so the bar cannot drift.
+      anchor = { positionMs: playback.positionMs, at: performance.now(), playing: playback.playing };
+    }
+
+    render(true);
+  }
+
+  /* -------------------------------------------------------------- connection */
+
+  let socket = null;
+  let lastMessageAt = 0;
+  let watchdog = null;
+  let reconnectTimer = null;
+
+  // A browser WebSocket can go silent without firing close (after sleep, or a network
+  // change), which would freeze the card. The server heartbeats well inside this window.
+  const SILENCE_TIMEOUT_MS = 45000;
+
+  function connect() {
+    clearTimeout(reconnectTimer);
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    try {
+      socket = new WebSocket(`${protocol}//${location.host}/ws?role=overlay&scope=now-playing`);
+    } catch {
+      reconnectTimer = setTimeout(connect, 1500);
+      return;
+    }
+
+    lastMessageAt = performance.now();
+    clearInterval(watchdog);
+    watchdog = setInterval(() => {
+      if (!socket || socket.readyState !== 1) return;
+      if (performance.now() - lastMessageAt > SILENCE_TIMEOUT_MS) {
+        try { socket.close(); } catch { /* already gone */ }
+      }
+    }, 5000);
+
+    socket.onopen = () => { lastMessageAt = performance.now(); };
+    socket.onclose = () => {
+      clearInterval(watchdog);
+      reconnectTimer = setTimeout(connect, 1500);
+    };
+    socket.onerror = () => { /* onclose follows */ };
+    socket.onmessage = (event) => {
+      lastMessageAt = performance.now();
+      let message;
+      try { message = JSON.parse(event.data); } catch { return; }
+      if (message.type === 'hello') return;
+      handleState(message);
+    };
+  }
+
+  applySettings();
+  render(true);
+  // The bar is driven by a timer rather than requestAnimationFrame: Chromium suspends
+  // rAF for a browser source OBS is not rendering, which would freeze the progress.
+  setInterval(tickProgress, 100);
+  connect();
+})();
+</script>
+</body>
+</html>

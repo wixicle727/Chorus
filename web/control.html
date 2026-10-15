@@ -356,6 +356,66 @@
             <div class="info"><div class="t">Hide text while paused</div><div class="d">Blank the overlay when playback stops.</div></div>
             <div class="control"><label class="switch"><input type="checkbox" id="hideOnPause" /><span class="track"></span></label></div>
           </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">Hide everything when there are no lyrics</div>
+              <div class="d">Renders nothing at all for a track with no lyrics, instead of the "no lyrics found" notice. The OBS source simply stays empty until a track with lyrics comes along.</div>
+            </div>
+            <div class="control"><label class="switch"><input type="checkbox" id="hideWhenNoLyrics" /><span class="track"></span></label></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">♪</span>Now playing overlay</div>
+        <div class="callout"><span class="ico">i</span><div>A separate OBS browser source showing the cover, title, artist and progress — useful for tracks that have no lyrics. It follows whichever platform is set on the <strong>Now playing</strong> page, so it works with any player. The URL is on the <strong>OBS setup</strong> page.</div></div>
+        <div class="card">
+          <div class="row">
+            <div class="info"><div class="t">Show cover art</div><div class="d">Album artwork, with the card background tinted from it.</div></div>
+            <div class="control"><label class="switch"><input type="checkbox" id="npShowCover" /><span class="track"></span></label></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Show title</div><div class="d">The track name.</div></div>
+            <div class="control"><label class="switch"><input type="checkbox" id="npShowTitle" /><span class="track"></span></label></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Show artist</div><div class="d">The track's artist line.</div></div>
+            <div class="control"><label class="switch"><input type="checkbox" id="npShowArtist" /><span class="track"></span></label></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Show progress bar</div><div class="d">Elapsed position against the track length, with the elapsed and total times.</div></div>
+            <div class="control"><label class="switch"><input type="checkbox" id="npShowProgress" /><span class="track"></span></label></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Dim and show a pause glyph when paused</div><div class="d">Makes a paused track obvious at a glance.</div></div>
+            <div class="control"><label class="switch"><input type="checkbox" id="npShowPausedState" /><span class="track"></span></label></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Hide when nothing is playing</div><div class="d">Keep the card invisible rather than showing an empty frame.</div></div>
+            <div class="control"><label class="switch"><input type="checkbox" id="npHideWhenIdle" /><span class="track"></span></label></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Width</div><div class="d">Card width in pixels; the card is centred in whatever size the OBS source is.</div></div>
+            <div class="control"><input class="num" type="number" id="npWidth" min="200" max="1920" step="10" /></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Font size</div><div class="d">Base size in pixels; the title and artist scale from it.</div></div>
+            <div class="control"><input class="num" type="number" id="npFontSize" min="8" max="96" step="1" /></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Corner radius</div><div class="d">Roundness of the card and the cover art.</div></div>
+            <div class="control"><input class="num" type="number" id="npRadius" min="0" max="60" step="1" /></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Text alignment</div><div class="d">How the title and artist sit inside the card.</div></div>
+            <div class="control">
+              <select id="npTextAlign">
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -402,6 +462,20 @@
               <div class="d">A thin track-position bar along the bottom edge.</div>
             </div>
             <div class="control"><label class="switch"><input type="checkbox" id="showProgress" /><span class="track"></span></label></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">♪</span>Now playing overlay URL</div>
+        <div class="callout"><span class="ico">ℹ</span><div>A second, optional browser source showing the cover, title, artist and progress. Handy for tracks with no lyrics, or as a permanent "what's playing" card. Size it around <strong>600 × 140</strong> and tick <em>Shutdown source when not visible</em> off, the same as the lyric overlay.</div></div>
+        <div class="card">
+          <div class="row">
+            <div class="info"><input type="text" id="nowPlayingUrl" readonly /></div>
+            <div class="control">
+              <button class="btn primary" id="copyNowPlayingUrl">Copy</button>
+              <button class="btn" id="openNowPlaying">Open</button>
+            </div>
           </div>
         </div>
       </div>
@@ -899,7 +973,21 @@ function setControlsFromConfig() {
   $('translationAsMain').checked = Boolean(o.translationAsMain);
   $('showPlaceholder').checked = Boolean(o.showPlaceholder);
   $('hideOnPause').checked = Boolean(o.hideOnPause);
+  $('hideWhenNoLyrics').checked = Boolean(o.hideWhenNoLyrics);
   $('offsetMs').value = config.window.offsetMs;
+
+  // Now playing overlay.
+  const np = config.nowPlaying ?? {};
+  $('npShowCover').checked = np.showCover !== false;
+  $('npShowTitle').checked = np.showTitle !== false;
+  $('npShowArtist').checked = np.showArtist !== false;
+  $('npShowProgress').checked = np.showProgress !== false;
+  $('npShowPausedState').checked = np.showPausedState !== false;
+  $('npHideWhenIdle').checked = np.hideWhenIdle !== false;
+  $('npWidth').value = np.widthPx ?? 500;
+  $('npFontSize').value = np.fontSizePx ?? 20;
+  $('npRadius').value = np.borderRadiusPx ?? 20;
+  $('npTextAlign').value = np.textAlign ?? 'left';
 
   // Idle opacity rides along with the inactive scale; surface it as its own slider.
   $('idleOpacity').value = overlaysIdleOpacity;
@@ -979,6 +1067,32 @@ function wireControls() {
   bindCheckbox('translationAsMain', 'overlay.translationAsMain');
   bindCheckbox('showPlaceholder', 'overlay.showPlaceholder');
   bindCheckbox('hideOnPause', 'overlay.hideOnPause');
+  bindCheckbox('hideWhenNoLyrics', 'overlay.hideWhenNoLyrics');
+
+  // Now playing overlay. Numbers are coerced so an empty field cannot save NaN.
+  for (const [id, path] of [
+    ['npShowCover', 'nowPlaying.showCover'],
+    ['npShowTitle', 'nowPlaying.showTitle'],
+    ['npShowArtist', 'nowPlaying.showArtist'],
+    ['npShowProgress', 'nowPlaying.showProgress'],
+    ['npShowPausedState', 'nowPlaying.showPausedState'],
+    ['npHideWhenIdle', 'nowPlaying.hideWhenIdle'],
+  ]) {
+    bindCheckbox(id, path);
+  }
+  for (const [id, path, min, max, fallback] of [
+    ['npWidth', 'nowPlaying.widthPx', 200, 1920, 500],
+    ['npFontSize', 'nowPlaying.fontSizePx', 8, 96, 20],
+    ['npRadius', 'nowPlaying.borderRadiusPx', 0, 60, 20],
+  ]) {
+    $(id).addEventListener('change', () => {
+      const raw = Number($(id).value);
+      const value = Number.isFinite(raw) ? Math.min(max, Math.max(min, raw)) : fallback;
+      $(id).value = value;
+      saveConfig(buildPatch(path, value));
+    });
+  }
+  bindSelect('npTextAlign', 'nowPlaying.textAlign');
 
   $('offsetMs').addEventListener('change', (e) => setOffset(Number(e.target.value)));
   $('offsetReset').addEventListener('click', () => setOffset(0));
@@ -1020,6 +1134,8 @@ function wireControls() {
   $('copyOverlayUrl').addEventListener('click', () => copy($('overlayUrl').value, 'Overlay URL copied — paste it into the OBS browser source'));
   $('openOverlay').addEventListener('click', () => window.open($('overlayUrl').value, '_blank'));
   $('openOverlay2').addEventListener('click', () => window.open($('overlayUrl').value, '_blank'));
+  $('copyNowPlayingUrl').addEventListener('click', () => copy($('nowPlayingUrl').value, 'Now playing URL copied — paste it into a second OBS browser source'));
+  $('openNowPlaying').addEventListener('click', () => window.open($('nowPlayingUrl').value, '_blank'));
   $('copyControlUrl').addEventListener('click', () => copy($('controlUrl').value, 'Control panel URL copied'));
 
   $('healthCheck').addEventListener('click', checkHealth);
@@ -1282,6 +1398,7 @@ const DEFAULTS_FOR_RESET = {
   uppercase: false,
   showPlaceholder: true,
   hideOnPause: false,
+  hideWhenNoLyrics: false,
   idleOpacity: 0.55,
   fontFamily: '"Segoe UI", "Microsoft YaHei UI", "Meiryo", system-ui, sans-serif',
 };
@@ -1296,6 +1413,11 @@ function updateOverlayUrl() {
   const query = params.toString();
   $('overlayUrl').value = query ? `${base}?${query}` : base;
   $('controlUrl').value = `${location.origin}/control`;
+
+  // The now-playing overlay takes its own debug flag; everything else is served from
+  // config so it stays in step with the panel.
+  const npBase = `${location.origin}/nowplaying`;
+  $('nowPlayingUrl').value = $('debugMode').checked ? `${npBase}?debug=1` : npBase;
 }
 
 function refreshPreview() {

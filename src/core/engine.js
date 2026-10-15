@@ -591,6 +591,14 @@ export class Engine extends EventEmitterLike {
       // Presentation settings travel with every full snapshot so the OBS browser
       // source picks up control-panel changes live, without a page reload.
       settings: this.config.overlay,
+      /**
+       * Settings for the universal now-playing overlay.
+       *
+       * A separate field rather than nesting both under `settings`, so the lyrics
+       * overlay's flat contract is unchanged — the panel and the tests both read
+       * `settings.alignment` and friends directly.
+       */
+      nowPlayingSettings: this.config.nowPlaying,
       full,
     };
   }

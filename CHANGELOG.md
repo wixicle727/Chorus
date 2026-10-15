@@ -7,6 +7,38 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-10-15
+
+### Added
+
+- **Hide everything when a track has no lyrics.** Style → *Hide everything when there are
+  no lyrics*. With it on, the overlay renders nothing at all for a track with no lyrics
+  instead of the "no lyrics found" notice, so the OBS source simply stays empty until a
+  track with lyrics comes along. Off by default.
+
+- **A universal now-playing overlay.** A second, optional OBS browser source showing the
+  cover art, title, artist and progress bar — useful for tracks that have no lyrics, or as
+  a permanent "what's playing" card.
+
+  ```
+  http://127.0.0.1:6727/nowplaying
+  ```
+
+  Modelled on [nutty.gg](https://github.com/nuttylmao/nutty.gg)'s now-playing widget: the
+  artwork is blurred into the card background so the card belongs to the cover rather than
+  sitting on top of it, the cover cross-fades on a track change, long titles scroll, and a
+  paused track dims with a pause glyph.
+
+  It is universal by construction — it reads whatever session Chorus has selected, so it
+  follows the configured primary platform with no per-platform code, exactly like the lyric
+  overlay. Every part is toggleable from Style → *Now playing overlay* (cover, title,
+  artist, progress, paused state, hide-when-idle, width, font size, corner radius, text
+  alignment), and the same values can be overridden per browser source with URL parameters
+  (`?cover=0&width=640`, and so on).
+
+  It is independent of the lyrics overlay: either, both or neither can be added to OBS.
+  `/now-playing` also works as a spelling.
+
 ## [1.2.0] — 2026-10-07
 
 ### Fixed

@@ -267,8 +267,44 @@ export const DEFAULTS = {
     leadInText: '',
     // Hide all text when playback is paused.
     hideOnPause: false,
+    /**
+     * Render nothing at all when the current track has no lyrics.
+     *
+     * For a stream where the overlay sits over the scene, "no lyrics found" is worse than
+     * nothing: the OBS source simply stays empty until a track with lyrics comes along.
+     */
+    hideWhenNoLyrics: false,
     // Empty lines render a musical note placeholder instead of nothing.
     showPlaceholder: true,
+  },
+  /**
+   * The universal "now playing" overlay: title, artist, progress and cover art, driven by
+   * the same SMTC session the lyrics are. Independent of the lyrics overlay, so either,
+   * both or neither can be added as an OBS browser source.
+   */
+  nowPlaying: {
+    showTitle: true,
+    showArtist: true,
+    showProgress: true,
+    showCover: true,
+    /** Show elapsed / remaining time either side of the bar. */
+    showTimes: true,
+    /** Dim the artwork and show a pause glyph while playback is paused. */
+    showPausedState: true,
+    /** Hide the whole card when nothing is playing. */
+    hideWhenIdle: true,
+    widthPx: 500,
+    fontSizePx: 20,
+    /** 'left' | 'center' | 'right' */
+    textAlign: 'left',
+    borderRadiusPx: 20,
+    /** Text colours; the card background is derived from the artwork. */
+    colorTitle: '#ffffff',
+    colorArtist: '#e0e0e0',
+    colorProgress: '#ffffff',
+    colorAccent: '#4cc2ff',
+    /** Blur the cover art into the card background, as nutty.gg's standard theme does. */
+    blurBackground: true,
   },
   window: {
     // Gap before a line becomes active, in ms (positive = lyrics appear earlier).

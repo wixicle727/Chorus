@@ -223,6 +223,7 @@
     const SHOW_PROGRESS = params.get('progress') === '1';
 
     const listEl = document.getElementById('list');
+    const stageEl = document.getElementById('stage');
     const noticeEl = document.getElementById('notice');
     const noticeTitleEl = noticeEl.querySelector('.title');
     const noticeHintEl = noticeEl.querySelector('.hint');
@@ -250,6 +251,7 @@
       idleOpacity: 0.55,
       leadInText: '',
       hideOnPause: false,
+      hideWhenNoLyrics: false,
       showPlaceholder: true,
     };
 
@@ -393,6 +395,21 @@
       // on every pass rather than only on a line change, otherwise pausing would
       // not blank the text until the next line boundary.
       const paused = !timerAnchor.playing && Boolean(track);
+
+      /**
+       * "Hide when there are no lyrics" renders nothing at all for this track.
+       *
+       * The whole page is blanked rather than just the lines, because the notice plate
+       * ("no lyrics found for this track") is itself something a streamer does not want on
+       * screen. The overlay is a transparent OBS browser source, so hiding the stage is
+       * enough — nothing else needs to be torn down.
+       */
+      const noLyrics = lines.length === 0 || status === 'notfound';
+      const blanked = settings.hideWhenNoLyrics && noLyrics;
+
+      const stageVisibility = blanked ? 'hidden' : 'visible';
+      if (stageEl.style.visibility !== stageVisibility) stageEl.style.visibility = stageVisibility;
+
       const visibility = settings.hideOnPause && paused ? 'hidden' : 'visible';
       if (listEl.style.visibility !== visibility) listEl.style.visibility = visibility;
 
