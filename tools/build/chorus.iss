@@ -90,6 +90,7 @@ Name: "startup"; Description: "Start Chorus when Windows starts"; GroupDescripti
 ; are embedded in it, so this is the only file the application needs.
 Source: "{#SourceDir}\Chorus.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\README.zh-CN.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
 

@@ -472,7 +472,7 @@ function assemble(exePath) {
 
   // The executable is self-contained: the front-end, the images and the SMTC
   // bridge's scripts are all embedded. Only human-facing files ship beside it.
-  for (const file of ['README.md', 'CHANGELOG.md', 'LICENSE']) {
+  for (const file of ['README.md', 'README.zh-CN.md', 'CHANGELOG.md', 'LICENSE']) {
     const from = path.join(ROOT, file);
     if (fs.existsSync(from)) {
       fs.copyFileSync(from, path.join(OUT_DIR, file));
