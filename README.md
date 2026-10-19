@@ -1,5 +1,7 @@
 <div align="center">
 
+<a href="README.zh-CN.md">简体中文</a> · <a href="README.md">English</a>
+
 <img src="assets/chorus-banner.png" alt="Chorus — live lyrics for OBS, from Windows SMTC" width="720">
 
 ![Chorus's UI](https://i.ibb.co/MDpTQMV4/download-1.png)
@@ -145,7 +147,7 @@ The overlay then follows that app even when another window has focus.
 
 Control panel → **Application** → **Start with Windows**. Chorus then launches
 hidden at sign-in, so the overlay is live whenever OBS opens. See
-[Starting with Windows](#-starting-with-windows).
+[Starting with Windows](#starting-with-windows).
 
 </details>
 
