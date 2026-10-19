@@ -5,9 +5,7 @@ All notable changes to Chorus are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-## [1.3.0] — 2026-10-15
+## [1.3.0] — 2026-10-20
 
 ### Added
 
@@ -38,6 +36,27 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
   It is independent of the lyrics overlay: either, both or neither can be added to OBS.
   `/now-playing` also works as a spelling.
+
+### Changed
+
+- **The Windows installer requires administrator rights.** It installs for all users under
+  `C:\Program Files\Chorus` instead of per-user. A per-user install could not create its own
+  folder on current Windows builds — Setup stopped with "unable to create the directory …
+  Error 5: Access is denied" before copying a single file, no matter which folder was chosen.
+
+  Inno Setup's `PrivilegesRequired=admin` alone was not enough on the machine this was
+  reported from: Setup started unelevated anyway, and failed exactly the same way. The
+  compiled `Setup.exe` now carries a `requestedExecutionLevel="requireAdministrator"`
+  manifest, added after compiling by `tools/build/force-admin-manifest.mjs`, so Windows
+  asks for elevation before any of Setup's code runs. Declining gives a plain message
+  instead of a half-finished install.
+
+- **The destination-folder page is shown again.** Inno hides it whenever Setup is elevated,
+  so requiring admin would otherwise have removed the only chance to choose where Chorus
+  is installed.
+
+- Settings, cache and history live next to the executable when that folder is writable, and
+  fall back to `%LOCALAPPDATA%\Chorus\data` when it is not.
 
 ## [1.2.0] — 2026-10-07
 
@@ -290,6 +309,8 @@ First release.
 - Lyrics are fetched from public endpoints using only the track title and artist.
   No account, no API key, no telemetry.
 
-[Unreleased]: https://github.com/wixicle727/Chorus/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/wixicle727/Chorus/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/wixicle727/Chorus/releases/tag/v1.3.0
+[1.2.0]: https://github.com/wixicle727/Chorus/releases/tag/v1.2.0
 [1.1.0]: https://github.com/wixicle727/Chorus/releases/tag/v1.1.0
 [1.0.0]: https://github.com/wixicle727/Chorus/releases/tag/v1.0.0

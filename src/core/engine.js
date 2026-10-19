@@ -10,7 +10,7 @@
 
 import { BridgeClient, selectSession, isPlaying, PlaybackStatus } from './bridge.js';
 import { activeIndexAt, buildLyricDoc, mergeLyrics } from './lrc.js';
-import { createRegistry, resolveLyrics } from './match.js';
+import { createRegistry, resolveLyrics, providerLabel } from './match.js';
 import { PROVIDERS } from '../providers/index.js';
 import { clamp } from './utils.js';
 import { cacheKey } from './store.js';
@@ -74,6 +74,15 @@ export class Engine extends EventEmitterLike {
     /** Set by refresh() so the next track resolution skips the cache once. */
     this.bypassCacheOnce = false;
     this.lastTrackSignature = null;
+    /**
+     * Cover URLs fetched from a lyrics provider, keyed by track id.
+     *
+     * A null value means "asked and there is none", so a track with no artwork anywhere is
+     * not re-requested on every poll. `'pending'` marks an in-flight lookup.
+     */
+    this.coverCache = new Map();
+    /** The most recently resolved provider cover, used until the next one arrives. */
+    this.coverFallback = null;
   }
 
   updateConfig(config) {
@@ -223,6 +232,9 @@ export class Engine extends EventEmitterLike {
     this.state.fromCache = false;
     this.currentTrackId = cacheKey(track);
     this.lastEmittedIndex = -2;
+    // Drop the previous track's provider cover immediately. Keeping it would show the last
+    // album's artwork against the new track until its own lookup returned.
+    this.coverFallback = null;
 
     // A manual override short-circuits everything.
     const override = this.store.getOverride(track);
@@ -307,10 +319,21 @@ export class Engine extends EventEmitterLike {
 
       // No usable lyric: distinguish "provider says instrumental" from "nothing found".
       const instrumental = Boolean(result.instrumentalCandidate);
+      /**
+       * Never leave the label empty on a failure.
+       *
+       * With no candidate there is no single provider to name, and `null` made the cache and
+       * history rows say nothing at all about why a track found no lyrics. Naming the sources
+       * that were actually searched makes the row self-explanatory.
+       */
+      const searchedLabels = (result.errors?.length ? [] : (this.config.lyrics?.enabled ?? []))
+        .map((id) => providerLabel(id))
+        .filter(Boolean);
       const payload = {
         status: 'notfound',
         provider: result.instrumentalCandidate?.provider ?? null,
-        providerLabel: result.instrumentalCandidate?.providerLabel ?? null,
+        providerLabel: result.instrumentalCandidate?.providerLabel
+          ?? (searchedLabels.length ? `No lyrics on ${searchedLabels.join(', ')}` : 'No lyrics found'),
         candidate: result.instrumentalCandidate ?? null,
         alternatives: result.alternatives ?? [],
         lines: [],
@@ -500,6 +523,64 @@ export class Engine extends EventEmitterLike {
   }
 
   /** Snapshot handed to WebSocket clients and the control panel. */
+  /**
+   * Cover art for the current track.
+   *
+   * Preferred source is the playing session itself (SMTC artwork from the player), because
+   * it is already on hand and always matches what is playing. When a player publishes no
+   * artwork — a browser tab, or a player that only reports text — the lyrics provider that
+   * matched the track is asked instead, which for NetEase means its album cover.
+   *
+   * Lookups are cached per track, including failures, so a track without artwork anywhere
+   * is asked about once rather than on every poll.
+   */
+  coverFor(track) {
+    if (!track) return null;
+
+    const fromPlayer =
+      this.state.sessions.find((s) => s.appId === track.appId)?.thumbnail ?? null;
+    if (fromPlayer) return fromPlayer;
+
+    const id = this.currentTrackId ?? cacheKey(track);
+    if (this.coverCache.has(id)) {
+      const cached = this.coverCache.get(id);
+      if (cached !== 'pending') return cached;
+      return this.coverFallback;
+    }
+
+    this.requestProviderCover(id, track);
+    return this.coverFallback;
+  }
+
+  requestProviderCover(id, track) {
+    this.coverCache.set(id, 'pending');
+    const providerId = this.state.provider;
+    const candidate = this.state.candidate;
+    const provider = providerId ? this.registry.get(providerId) : null;
+
+    // Only providers that implement it, and only for the candidate that actually matched —
+    // guessing from the title would risk attaching the wrong album's artwork.
+    if (!provider?.fetchCover || !candidate) {
+      this.coverCache.set(id, null);
+      return;
+    }
+
+    provider
+      .fetchCover(candidate)
+      .then((url) => {
+        const value = typeof url === 'string' && url ? url : null;
+        this.coverCache.set(id, value);
+        if (value) {
+          this.coverFallback = value;
+          this.emitState({ reason: 'cover', full: true });
+        }
+      })
+      .catch(() => {
+        // Artwork is optional: never let it disturb playback or lyrics.
+        this.coverCache.set(id, null);
+      });
+  }
+
   snapshot({ full = true } = {}) {
     const lines = this.state.lines ?? [];
     const index = this.state.lineIndex;
@@ -518,8 +599,15 @@ export class Engine extends EventEmitterLike {
       track: this.state.track
         ? {
             ...this.state.track,
-            thumbnail:
-              this.state.sessions.find((s) => s.appId === this.state.track.appId)?.thumbnail ?? null,
+            // The player's own artwork when it has any, otherwise a cover fetched from the
+            // lyrics provider. See coverFor().
+            thumbnail: this.coverFor(this.state.track),
+            coverSource:
+              this.state.sessions.find((s) => s.appId === this.state.track.appId)?.thumbnail
+                ? 'player'
+                : this.coverFallback
+                  ? 'provider'
+                  : null,
           }
         : null,
       playback: {

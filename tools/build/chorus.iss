@@ -42,13 +42,23 @@ AppPublisherURL={#AppUrl}
 AppSupportURL={#AppUrl}/issues
 AppUpdatesURL={#AppUrl}/releases
 
-; Per-user install by default so no administrator rights are needed. The user can still
-; choose "install for all users" from the dialog, which elevates.
-PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
+; Administrator rights, forcibly. A per-user install looks friendlier, but Setup's attempt
+; to write the install folder's security descriptor is refused on some hardened Windows
+; builds: the user gets "Setup was unable to create the directory ... Error 5: Access is
+; denied" the moment Setup creates {app}, before any file is copied, and no directory can
+; be written at that point no matter where it points. Elevated, the same call succeeds.
+;
+; No overrides: offering "install for me only" in the dialog would hand the user the
+; broken path back, and it fails with an error most people cannot act on.
+PrivilegesRequired=admin
 
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
+; Inno's default ("auto") hides the folder page whenever Setup is elevated, which is now
+; always. Show it so the install path can be changed, and pre-fill it with the previous
+; choice when upgrading.
+DisableDirPage=no
+UsePreviousAppDir=yes
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
 
@@ -98,8 +108,12 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
   Flags: uninsdeletevalue; Tasks: startup
 
 [Run]
+; runasoriginaluser: Setup is elevated, and starting the app from here would otherwise
+; launch it as an administrator too — a desktop app has no reason to run with that token,
+; and anything it spawns later would inherit it. This hands the launch back to the
+; unelevated shell that started Setup.
 Description: "Start Chorus now"; Filename: "{app}\Chorus.exe"; WorkingDir: "{app}"; \
-  Flags: nowait postinstall skipifsilent
+  Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [UninstallRun]
 ; Stop a running instance first, or the executable stays locked and the uninstall leaves
@@ -116,6 +130,23 @@ Filename: "{app}\Chorus.exe"; Parameters: "--quit"; Flags: runhidden; \
 ; explicitly says so, via the prompt below.
 
 [Code]
+// The setup binary ships with a requireAdministrator manifest (added after compiling by
+// tools/build/force-admin-manifest.mjs), so Windows elevates it before Setup starts.
+// PrivilegesRequired=admin alone did not do that on the machine this was reported against.
+// This check is only a safety net, for a stripped or replaced manifest.
+function InitializeSetup(): Boolean;
+begin
+  Result := True;
+  if not IsAdmin then
+  begin
+    MsgBox('Chorus Setup needs administrator rights.' + #13#10 + #13#10 +
+           'Right-click the installer and choose "Run as administrator".',
+           mbError, MB_OK);
+    Result := False;
+  end;
+end;
+
+
 // Ask before discarding data, so an uninstall is not silently destructive. An upgrade
 // never reaches this: Inno Setup only runs [Code] during an uninstall, and only after the
 // user has confirmed they want to remove the application.

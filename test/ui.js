@@ -126,6 +126,16 @@ section('Hide when there are no lyrics');
   const overlay = (await get('/overlay')).text;
   ok('the overlay knows about the option', overlay.includes('hideWhenNoLyrics'));
   ok('the option hides the whole stage', overlay.includes('stageEl.style.visibility'));
+  // A search in progress must NOT count as "no lyrics": blanking then would flash the
+  // overlay away and back on every track change, and hide a result still being fetched.
+  ok(
+    'only a finished search may blank the overlay',
+    /searchFinished\s*=\s*status === 'notfound'/.test(overlay),
+  );
+  ok(
+    'the blank decision requires the search to be finished',
+    /noLyrics\s*=\s*searchFinished && lines\.length === 0/.test(overlay),
+  );
 
   const control = (await get('/control')).text;
   ok('the panel exposes a toggle', control.includes('id="hideWhenNoLyrics"'));
@@ -144,9 +154,34 @@ section('Hide when there are no lyrics');
 
   // The panel's own DOM contract is checked generally below; these are the specific
   // controls this feature added.
-  for (const id of ['npShowCover', 'npShowTitle', 'npShowArtist', 'npShowProgress', 'npShowPausedState', 'npHideWhenIdle', 'npWidth', 'npFontSize', 'npRadius', 'npTextAlign', 'nowPlayingUrl', 'copyNowPlayingUrl', 'openNowPlaying']) {
+  for (const id of ['npShowCover', 'npShowTitle', 'npShowArtist', 'npShowProgress', 'npShowPausedState', 'npHideWhenIdle', 'npHideOnPause', 'npWidth', 'npFontSize', 'npRadius', 'npTextAlign', 'nowPlayingUrl', 'copyNowPlayingUrl', 'openNowPlaying']) {
     ok(`the panel has #${id}`, control.includes(`id="${id}"`));
   }
+
+  // The cover and the text panel must form ONE plate: a single rounded container that clips
+  // its children, with no gap, so the two halves cannot drift apart or double-round.
+  const npPage = (await get('/nowplaying')).text;
+  ok(
+    'the plate clips its children, so the corners come from one shape',
+    /#card\s*\{[^}]*overflow:\s*hidden/s.test(npPage),
+  );
+  ok('there is no gap between the cover and the panel', /#card\s*\{[^}]*gap:\s*0\s*;/s.test(npPage));
+  ok(
+    'the cover is stretched to the panel height',
+    /#cover\s*\{[^}]*align-self:\s*stretch/s.test(npPage),
+  );
+  ok(
+    'only the cover\u2019s outer corners are rounded',
+    /#cover\s*\{[^}]*border-radius:\s*var\(--card-radius\)\s+0\s+0\s+var\(--card-radius\)/s.test(npPage),
+  );
+  ok(
+    'only the panel\u2019s outer corners are rounded',
+    /#info\s*\{[^}]*border-radius:\s*0\s+var\(--card-radius\)\s+var\(--card-radius\)\s+0/s.test(npPage),
+  );
+  // With the cover off, the panel is the whole plate and needs its left edge back.
+  ok('hiding the cover restores the panel\u2019s left corners', npPage.includes('#card.no-cover #info'));
+  ok('the hide-while-paused option exists', npPage.includes('hideOnPause'));
+  ok('config carries a hide-while-paused default', typeof config.nowPlaying?.hideOnPause === 'boolean');
 }
 
 section('Brand assets');
@@ -400,7 +435,16 @@ section('Live state');
     config.lyrics.fallback && typeof config.lyrics.fallback.enabled === 'boolean' && typeof config.lyrics.fallback.minScore === 'number',
     JSON.stringify(config.lyrics.fallback),
   );
-  ok('the fallback threshold defaults to 85', config.lyrics.fallback.minScore === 85, String(config.lyrics.fallback.minScore));
+  // Deliberately not asserting a specific number. The threshold is user-configurable and
+  // this suite runs against the real data folder, so asserting the default made the test
+  // fail for anyone who had changed it. What matters is that it is a usable percentage.
+  ok(
+    'the fallback threshold is a percentage',
+    Number.isFinite(config.lyrics.fallback.minScore)
+      && config.lyrics.fallback.minScore >= 0
+      && config.lyrics.fallback.minScore <= 100,
+    String(config.lyrics.fallback.minScore),
+  );
 }
 
 console.log(`\n${'─'.repeat(56)}`);

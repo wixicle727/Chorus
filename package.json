@@ -35,6 +35,7 @@
     "test": "node test/run.js",
     "test:offline": "node test/run.js --offline",
     "test:engine": "node test/engine.js",
+    "test:nowplaying": "node test/nowplaying.js",
     "test:ui": "node test/ui.js"
   },
   "engines": {
@@ -46,6 +47,7 @@
   "devDependencies": {
     "innosetup-compiler": "^6.3.1",
     "postject": "^1.0.0-alpha.6",
-    "rcedit": "^5.0.2"
+    "rcedit": "^5.0.2",
+    "resedit": "^3.1.0"
   }
 }

@@ -280,6 +280,63 @@ section('Idle heartbeat');
   );
 }
 
+section('A failed lookup still explains itself');
+
+{
+  /**
+   * A "no lyrics" row used to carry a null provider label, so the cache and history pages
+   * showed nothing about why a track failed. Worse, the label is the only clue a user has
+   * that the sources were searched at all rather than the app silently giving up.
+   *
+   * The title here is deliberately unsearchable, so no provider can match it and the
+   * failure path runs for real.
+   */
+  const track = {
+    appId: 'Spotify.exe',
+    platformName: 'Spotify',
+    title: 'Zzqx Unmatchable Test Title Qqzz',
+    artist: 'Zzqx Unmatchable Artist Qqzz',
+    album: '',
+    durationMs: 200000,
+  };
+
+  // Drive the engine down the failure path with a fresh track, bypassing any cache.
+  engine.bypassCacheOnce = true;
+  engine.state.provider = null;
+  engine.state.candidate = null;
+  await engine.onTrackChanged(track);
+
+  // onTrackChanged resolves asynchronously; give the lookup room to finish.
+  for (let i = 0; i < 60; i += 1) {
+    if (engine.state.lyricStatus === 'notfound' || engine.state.lyricStatus === 'matched') break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  check('the track resolved to "not found"', engine.state.lyricStatus === 'notfound', engine.state.lyricStatus);
+  check(
+    'the failure names the sources that were searched',
+    typeof engine.state.providerLabel === 'string' && engine.state.providerLabel.length > 0,
+    String(engine.state.providerLabel),
+  );
+
+  // And it must reach both the cache and the history, so the panel can show it.
+  const cached = engine.store.get(track) ?? engine.store.index?.entries?.[engine.currentTrackId];
+  check('the failure is recorded in the cache', Boolean(cached), 'no cache entry');
+  check(
+    'the cached failure keeps its explanation',
+    Boolean(cached?.providerLabel),
+    String(cached?.providerLabel),
+  );
+
+  const historyEntry = engine.store.history?.tracks?.find((t) => t.title === track.title);
+  check('the failure is recorded in the history', Boolean(historyEntry), 'no history entry');
+  check(
+    'the history entry keeps its explanation',
+    Boolean(historyEntry?.providerLabel),
+    String(historyEntry?.providerLabel),
+  );
+}
+
 engine.stop();
 bridge.server.close();
 

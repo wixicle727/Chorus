@@ -32,8 +32,22 @@
     --color-artist: #e0e0e0;
     --color-progress: #ffffff;
     --color-accent: #4cc2ff;
+    /* Set from the artwork when colour-from-cover is on. */
+    --tint-light: rgba(28, 28, 33, 0.94);
+    --tint-dark: rgba(16, 16, 19, 0.94);
+    --accent-derived: var(--color-accent);
+    --text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+    --track-bg: rgba(255, 255, 255, 0.22);
+    --divider: rgba(255, 255, 255, 0.07);
     --show-cover: flex;
     --width: 500px;
+    /*
+     * Cover edge length, derived from the font size so the card scales as one piece.
+     *
+     * 4.6 keeps the whole card inside the ~140 px height of the documented OBS browser
+     * source; a taller multiplier clipped the title and the progress bar.
+     */
+    --cover-size: calc(var(--font-size) * 4.6);
   }
 
   * { box-sizing: border-box; }
@@ -59,13 +73,24 @@
     justify-content: center;
   }
 
+  /*
+   * The whole widget is one rounded plate: cover on the left, text on the right, no gap.
+   *
+   * The children are clipped by this element (`overflow: hidden`), so their own corner radii
+   * only need to match the outer edge — there is no seam between the two halves, and the
+   * cover is exactly as tall as the card because both are stretched by the flex row.
+   */
   #card {
     width: var(--width);
     max-width: 100%;
     display: flex;
     flex-direction: row;
     align-items: stretch;
-    gap: 0.75em;
+    gap: 0;
+    min-height: var(--cover-size);
+    border-radius: var(--card-radius);
+    overflow: hidden;
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.5);
     opacity: 0;
     transition: opacity 0.4s ease;
   }
@@ -77,14 +102,15 @@
 
   #cover {
     position: relative;
-    height: 100%;
-    aspect-ratio: 1 / 1;
-    border-radius: var(--component-radius);
+    width: var(--cover-size);
+    flex: 0 0 auto;
+    /* Fills the row's height, so it is never shorter than the text beside it. */
+    align-self: stretch;
+    /* Only the outer-left corners are rounded; the right edge meets the text panel. */
+    border-radius: var(--card-radius) 0 0 var(--card-radius);
     overflow: hidden;
     display: var(--show-cover);
-    flex-shrink: 0;
     background: #1b1b1f;
-    box-shadow: 0 0 6px rgba(0, 0, 0, 0.45);
   }
 
   #cover-img {
@@ -92,7 +118,12 @@
     inset: 0;
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    /*
+     * `contain`, not `cover`: artwork is usually square but not always, and `cover` cropped
+     * the edges off. `contain` shows the whole image, letterboxed inside the square frame,
+     * which stays rounded because the frame itself clips it.
+     */
+    object-fit: contain;
     transition: opacity 0.4s ease, filter 0.4s ease;
   }
 
@@ -108,10 +139,18 @@
     opacity: 0;
     transition: opacity 0.3s ease;
     z-index: 2;
+    /* A dimming veil rather than a filter on the artwork: brightness(0.45) on the cover
+       made it look like no artwork was loaded at all. */
+    background: rgba(0, 0, 0, 0.42);
   }
-  #pause-badge svg { width: 42%; height: 42%; fill: rgba(255, 255, 255, 0.92); }
+  #pause-badge svg {
+    width: 34%;
+    height: 34%;
+    fill: rgba(255, 255, 255, 0.95);
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
+  }
   #cover.paused #pause-badge { opacity: 1; }
-  #cover.paused #cover-img { filter: brightness(0.45); }
+  #cover.paused #cover-img { filter: brightness(0.82); }
 
   /* -------------------------------------------------------------------- info */
 
@@ -122,12 +161,18 @@
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 0.35em;
-    border-radius: var(--card-radius);
+    gap: 0.2em;
+    /* Only the outer-right corners; the left edge meets the cover with a hairline, so the
+       two halves read as one plate rather than two floating boxes. */
+    border-radius: 0 var(--card-radius) var(--card-radius) 0;
+    border-left: 1px solid var(--divider);
     overflow: hidden;
-    padding: 0.85em 1.1em;
-    box-shadow: 0 0 6px rgba(0, 0, 0, 0.45);
+    padding: 0.7em 1em;
   }
+
+  /* With the cover hidden the text panel carries the whole plate, so it regains its
+     rounded left edge. */
+  #card.no-cover #info { border-radius: var(--card-radius); border-left: 0; }
 
   /* The blurred artwork fills the card. Two layers so a track change cross-fades
      instead of flashing black. */
@@ -147,8 +192,33 @@
   #scrim {
     position: absolute;
     inset: 0;
-    background: linear-gradient(135deg, rgba(28, 28, 33, 0.94), rgba(16, 16, 19, 0.94));
+    background: linear-gradient(135deg, var(--tint-light), var(--tint-dark));
     z-index: 1;
+  }
+
+  /*
+   * Two looks for the plate.
+   *
+   * `cover` — the artwork's most-used colour, laid down as a near-solid wash so it reads as
+   *   a colour rather than a blur. The text colour is chosen for contrast against it.
+   * `blur`  — the artwork itself, heavily blurred and darkened, showing through a light
+   *   scrim. Softer, and always readable because the scrim does the work.
+   */
+  #card.style-cover #scrim {
+    background: linear-gradient(135deg, var(--tint-light), var(--tint-dark));
+    opacity: 0.94;
+  }
+  #card.style-cover #bg,
+  #card.style-cover #bg-next { display: none; }
+
+  #card.style-blur #bg,
+  #card.style-blur #bg-next {
+    filter: blur(14px) brightness(0.42) saturate(1.4);
+    display: block;
+  }
+  #card.style-blur #scrim {
+    background: linear-gradient(135deg, rgba(12, 12, 16, 0.34), rgba(8, 8, 11, 0.56));
+    opacity: 1;
   }
 
   #content {
@@ -184,14 +254,14 @@
     font-size: 1.15em;
     font-weight: 600;
     color: var(--color-title);
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+    text-shadow: var(--text-shadow);
   }
 
   #artist {
     font-size: 0.85em;
     font-weight: 400;
     color: var(--color-artist);
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+    text-shadow: var(--text-shadow);
   }
 
   /* ---------------------------------------------------------------- progress */
@@ -218,7 +288,7 @@
     flex: 1;
     height: 5px;
     border-radius: 3px;
-    background: rgba(255, 255, 255, 0.22);
+    background: var(--track-bg);
     overflow: hidden;
   }
 
@@ -300,10 +370,12 @@
   if (params.has('fontSize')) OVERRIDES.fontSizePx = num('fontSize', 20);
   if (params.has('textAlign')) OVERRIDES.textAlign = params.get('textAlign');
   if (params.has('borderRadius')) OVERRIDES.borderRadiusPx = num('borderRadius', 20);
+  // Which look the plate uses: the cover's own colour, or the blurred artwork.
+  if (params.has('plateStyle')) OVERRIDES.plateStyle = params.get('plateStyle');
   for (const [key, name] of [
     ['showTitle', 'title'], ['showArtist', 'artist'], ['showProgress', 'progress'],
     ['showCover', 'cover'], ['showTimes', 'times'], ['showPausedState', 'paused'],
-    ['hideWhenIdle', 'hideWhenIdle'],
+    ['hideWhenIdle', 'hideWhenIdle'], ['hideOnPause', 'hideOnPause'],
   ]) {
     if (params.has(name)) OVERRIDES[key] = bool(name, true);
   }
@@ -316,8 +388,10 @@
 
   const DEFAULTS = {
     showTitle: true, showArtist: true, showProgress: true, showCover: true,
-    showTimes: true, showPausedState: true, hideWhenIdle: true,
-    widthPx: 500, fontSizePx: 20, textAlign: 'left', borderRadiusPx: 20,
+    showTimes: true, showPausedState: true, hideOnPause: false, hideWhenIdle: true,
+    /** 'cover' = the artwork's colour as a wash, 'blur' = the blurred artwork itself. */
+    plateStyle: 'cover',
+    widthPx: 500, fontSizePx: 18, textAlign: 'left', borderRadiusPx: 20,
     colorTitle: '#ffffff', colorArtist: '#e0e0e0', colorProgress: '#ffffff', colorAccent: '#4cc2ff',
   };
 
@@ -348,6 +422,8 @@
   /** Local clock so the bar advances smoothly between the 500 ms server ticks. */
   let anchor = { positionMs: 0, at: performance.now(), playing: false };
   let currentCoverUrl = null;
+  /** The decoded cover, kept so a style change can re-derive colours without reloading it. */
+  let coverImage = null;
 
   function formatTime(ms) {
     if (!Number.isFinite(ms) || ms < 0) return '0:00';
@@ -405,6 +481,190 @@
     progressEl.classList.toggle('off', !settings.showProgress);
     elapsedEl.classList.toggle('off', !settings.showTimes);
     durationEl.classList.toggle('off', !settings.showTimes);
+
+    applyPlateStyle();
+  }
+
+  /**
+   * Switch the plate between its two looks.
+   *
+   * The classes are set here rather than in render() so a settings change takes effect
+   * immediately, without waiting for the next state message.
+   */
+  let lastPlateStyle = null;
+  function applyPlateStyle() {
+    const style = settings.plateStyle === 'blur' ? 'blur' : 'cover';
+    cardEl.classList.toggle('style-cover', style === 'cover');
+    cardEl.classList.toggle('style-blur', style === 'blur');
+
+    // Re-derive the colours on a style change: `cover` needs the wash, while `blur` must
+    // fall back to the configured text colours to stay readable over the blurred artwork.
+    if (style !== lastPlateStyle) {
+      lastPlateStyle = style;
+      if (style === 'cover') applyCoverColors(coverImage);
+      else clearCoverColors();
+    }
+  }
+
+  /* ------------------------------------------------------- colour from artwork */
+
+  /** Relative luminance, used to decide whether text on a colour should be light or dark. */
+  function luminance(r, g, b) {
+    const lin = (c) => {
+      const v = c / 255;
+      return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  }
+
+  const rgbCss = (c) => `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+
+  /** Push a colour towards its own hue so a muted cover still gives a visible tint. */
+  function saturate([r, g, b], amount) {
+    const avg = (r + g + b) / 3;
+    const mix = (c) => Math.max(0, Math.min(255, Math.round(avg + (c - avg) * amount)));
+    return [mix(r), mix(g), mix(b)];
+  }
+
+  /**
+   * The single most-used colour in the artwork.
+   *
+   * Pixels are quantised into coarse buckets (16 levels per channel) so near-identical
+   * shades count together — otherwise a photo with slight gradients spreads across
+   * thousands of buckets and no single colour wins.
+   *
+   * Near-black and near-white are skipped while counting, because those are usually
+   * letterboxing or borders rather than the artwork's character. They are still used as a
+   * fallback if every pixel is one of them.
+   */
+  function dominantColor(image) {
+    const N = 32;
+    const canvas = document.createElement('canvas');
+    canvas.width = N;
+    canvas.height = N;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(image, 0, 0, N, N);
+    let data;
+    try {
+      ({ data } = ctx.getImageData(0, 0, N, N));
+    } catch {
+      // A tainted canvas cannot happen for a data: URL, but never break the widget over it.
+      return null;
+    }
+
+    const counts = new Map();
+    let fallback = null;
+    let fallbackCount = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < 128) continue;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+      const entry = counts.get(key) ?? { n: 0, r: 0, g: 0, b: 0 };
+      entry.n += 1;
+      entry.r += r;
+      entry.g += g;
+      entry.b += b;
+      counts.set(key, entry);
+
+      const lum = luminance(r, g, b);
+      if (lum > 0.03 && lum < 0.94) {
+        if (entry.n > fallbackCount) {
+          fallbackCount = entry.n;
+          fallback = [Math.round(entry.r / entry.n), Math.round(entry.g / entry.n), Math.round(entry.b / entry.n)];
+        }
+      }
+    }
+    if (fallback) {
+      // Maintained incrementally above; recompute from the winning bucket for accuracy.
+      let best = null;
+      for (const [key, entry] of counts) {
+        const lum = luminance(entry.r / entry.n, entry.g / entry.n, entry.b / entry.n);
+        if (lum <= 0.03 || lum >= 0.94) continue;
+        if (!best || entry.n > best.n) best = { key, ...entry };
+      }
+      if (best) {
+        return [
+          Math.round(best.r / best.n),
+          Math.round(best.g / best.n),
+          Math.round(best.b / best.n),
+        ];
+      }
+      return fallback;
+    }
+
+    // Everything was black or white; take the most common bucket regardless.
+    let best = null;
+    for (const entry of counts.values()) if (!best || entry.n > best.n) best = entry;
+    if (!best) return null;
+    return [Math.round(best.r / best.n), Math.round(best.g / best.n), Math.round(best.b / best.n)];
+  }
+
+  /**
+   * Paint the plate from the artwork.
+   *
+   * Only used by the `cover` style. The dominant colour becomes the wash, and the text colour
+   * is then chosen for contrast against it — white on dark covers, near-black on light ones.
+   * A lighter and a darker variant of the same hue give the wash some depth.
+   *
+   * Colours the user set explicitly (through a URL parameter) are never overridden.
+   */
+  function applyCoverColors(image) {
+    if (!image || settings.plateStyle === 'blur') return;
+    const base = dominantColor(image);
+    if (!base) return;
+
+    // Strongly saturated and held away from pure bright, so the wash reads as a definite
+    // colour rather than a muddy blur of the artwork.
+    const vivid = saturate(base, 1.6);
+    const light = vivid.map((c) => Math.min(255, Math.round(c * 1.05 + 26)));
+    const dark = vivid.map((c) => Math.round(c * 0.5));
+
+    const root = document.documentElement.style;
+    root.setProperty('--tint-light', rgbCss(light));
+    root.setProperty('--tint-dark', rgbCss(dark));
+    root.setProperty('--accent-derived', rgbCss(vivid));
+
+    // Contrast: pick the text colour for the background rather than the other way round.
+    const darkText = luminance(...base) > 0.55;
+    if (!OVERRIDES.colorTitle) {
+      root.setProperty('--color-title', darkText ? '#12121a' : '#ffffff');
+    }
+    if (!OVERRIDES.colorArtist) {
+      root.setProperty('--color-artist', darkText ? 'rgba(18, 18, 26, 0.74)' : 'rgba(255, 255, 255, 0.80)');
+    }
+    if (!OVERRIDES.colorProgress) {
+      root.setProperty('--color-progress', darkText ? '#12121a' : '#ffffff');
+    }
+    root.setProperty(
+      '--text-shadow',
+      darkText ? '0 1px 2px rgba(255, 255, 255, 0.4)' : '0 1px 3px rgba(0, 0, 0, 0.6)',
+    );
+    root.setProperty('--track-bg', darkText ? 'rgba(18, 18, 26, 0.22)' : 'rgba(255, 255, 255, 0.28)');
+    root.setProperty('--divider', darkText ? 'rgba(18, 18, 26, 0.14)' : 'rgba(255, 255, 255, 0.14)');
+
+    if (!OVERRIDES.colorAccent) root.setProperty('--color-accent', rgbCss(vivid));
+  }
+
+  /** Undo applyCoverColors, so the configured colours apply again (the `blur` style). */
+  function clearCoverColors() {
+    const root = document.documentElement.style;
+    for (const name of ['--tint-light', '--tint-dark', '--accent-derived', '--text-shadow', '--track-bg', '--divider']) {
+      root.removeProperty(name);
+    }
+    const fallback = {
+      '--color-title': settings.colorTitle,
+      '--color-artist': settings.colorArtist,
+      '--color-progress': settings.colorProgress,
+      '--color-accent': settings.colorAccent,
+    };
+    for (const [name, value] of Object.entries(fallback)) {
+      // Only restore what the user did not set explicitly; their value is applied in
+      // applySettings and should win.
+      if (OVERRIDES[name.replace('--color-', 'color')]) continue;
+      if (value) root.setProperty(name, value);
+    }
   }
 
   function setCover(url) {
@@ -415,14 +675,19 @@
       coverImgEl.classList.add('empty');
       coverImgEl.removeAttribute('src');
       bgEl.style.backgroundImage = 'none';
+      coverImage = null;
+      // No artwork means no colour to derive, so the configured colours take over again.
+      clearCoverColors();
       return;
     }
 
     // Preload, so the fade starts only once the new artwork is decodable.
     const img = new Image();
     img.onload = () => {
+      coverImage = img;
       coverImgEl.src = url;
       coverImgEl.classList.remove('empty');
+      applyCoverColors(img);
 
       // Cross-fade the blurred background through the spare layer.
       bgNextEl.style.backgroundImage = `url("${url}")`;
@@ -443,11 +708,17 @@
     const playing = Boolean(playback.playing);
     const idle = !track;
 
-    // "Hide when nothing is playing" keeps the card fully transparent rather than
-    // showing an empty frame.
-    cardEl.classList.toggle('hidden', Boolean(settings.hideWhenIdle) && idle);
+    // Two independent reasons to blank the plate: nothing playing, or (optionally) paused.
+    // Both simply keep it transparent rather than showing an empty frame.
+    const blanked = (Boolean(settings.hideWhenIdle) && idle)
+      || (Boolean(settings.hideOnPause) && !playing && !idle);
+    cardEl.classList.toggle('hidden', blanked);
 
     if (!idle) cardEl.classList.add('ready');
+
+    // The cover is not always shown, and the text panel needs its rounded left edge back
+    // when it is the only thing on the plate.
+    cardEl.classList.toggle('no-cover', !settings.showCover);
 
     if (settings.showPausedState) {
       coverEl.classList.toggle('paused', !playing && !idle);
@@ -489,7 +760,7 @@
     if (SHOW_DEBUG) {
       debugEl.textContent = `${track.platformName || '?'} · ${playing ? 'playing' : 'paused'} · ` +
         `${Math.round(position / 1000)}s / ${Math.round(duration / 1000)}s · ` +
-        `timeline=${usable ? 'yes' : 'no'}`;
+        `timeline=${usable ? 'yes' : 'no'} · cover=${track.coverSource || 'none'}`;
     }
   }
 

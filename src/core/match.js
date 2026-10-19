@@ -195,6 +195,13 @@ export function isCandidateAcceptable(candidate, track, settings = {}) {
   if (scored.total < minScore) return false;
   // The title gate comes first: a completely different title is never accepted,
   // however well the artist and duration line up.
+  //
+  // This deliberately rejects the localised-title case too. A player that translates a title
+  // (Spotify shows たいせつなもの as "My Precious") produces exactly the same evidence as a
+  // genuinely different song by the same artist: matching duration, matching artist, unrelated
+  // title. The suite pins that with 晴天 vs ドラマチックガール by 周杰伦, both 269000 ms — no
+  // metadata-only rule can separate the two, and showing the wrong lyrics is worse than
+  // showing none.
   const titleScore = scored.breakdown.title;
   if (titleScore < MIN_TITLE_SCORE) return false;
   if (titleScore < 0.5 && scored.breakdown.artist < 0.85) return false;

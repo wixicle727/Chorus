@@ -20,8 +20,49 @@ import {
   getText,
   postJson,
   safeJsonParse,
+  splitArtists,
   withQuery,
 } from '../core/utils.js';
+
+/**
+ * Search queries for a track, most specific first.
+ *
+ * The artist string a player publishes is often a CREDITED LIST, not one performer — Spotify
+ * reports `初星学園, フワリ, 秦谷美鈴` for an idol unit's track — while providers index the entry
+ * under a different member of that list. Searching only the first name therefore misses
+ * entries that exist, which is what happened with "My Precious".
+ *
+ * So the full credited string is tried first (it is the most specific and matches when the
+ * provider stores the same list), then the title alone, then each individual artist. The
+ * candidates are pooled and ranked by score afterwards, so a looser query cannot win on its
+ * own — it only adds candidates that the strict query could not reach.
+ *
+ * @param {{title?: string, artist?: string}} track
+ * @param {{limit?: number, includeArtistOnly?: boolean}} options
+ */
+export function buildSearchQueries(track, { limit = 4, includeArtistOnly = false } = {}) {
+  const title = String(track?.title ?? '').trim();
+  const artist = String(track?.artist ?? '').trim();
+  const queries = [];
+
+  const push = (value) => {
+    const text = String(value ?? '').trim();
+    if (text && !queries.includes(text)) queries.push(text);
+  };
+
+  if (title && artist) push(`${title} ${artist}`);
+  if (title) push(title);
+
+  // Individual credited artists, longest first: the most distinctive name is the most
+  // likely to be the one the provider indexes under.
+  const parts = splitArtists(artist).sort((a, b) => b.length - a.length);
+  for (const part of parts) {
+    if (title) push(`${title} ${part}`);
+  }
+  if (includeArtistOnly && artist) push(artist);
+
+  return queries.slice(0, limit);
+}
 
 /**
  * Convert untimed lyrics into a timed LRC document.
@@ -152,10 +193,8 @@ const netease = {
 
   async search(track, settings) {
     const timeoutMs = settings.searchTimeoutMs;
-    const queries = [];
-    if (track.title && track.artist) queries.push(`${track.title} ${track.artist}`);
-    if (track.title) queries.push(track.title);
-    if (track.artist) queries.push(track.artist);
+    // Credited artist lists mean the strictest query is not always the one that matches.
+    const queries = buildSearchQueries(track, { limit: 4, includeArtistOnly: true });
 
     const seen = new Set();
     const results = [];
@@ -214,6 +253,22 @@ const netease = {
       pureMusic: Boolean(payload?.pureMusic),
     };
   },
+
+  /**
+   * Cover art for a candidate.
+   *
+   * The song detail endpoint hands over a ready-made `album.picUrl`. Deriving the URL from
+   * `album.picId` instead does not work: the id exceeds Number.MAX_SAFE_INTEGER (so plain
+   * arithmetic silently loses precision) and the transform is not the documented one, which
+   * produced 404s on every attempt.
+   */
+  async fetchCover(candidate) {
+    const payload = await getJson(
+      `https://music.163.com/api/song/detail?ids=%5B${encodeURIComponent(candidate.key)}%5D`,
+      { headers: this.headers },
+    );
+    return payload?.songs?.[0]?.album?.picUrl ?? null;
+  },
 };
 
 /* ------------------------------------------------------------------ *
@@ -240,9 +295,7 @@ const qq = {
    */
   async search(track, settings) {
     const timeoutMs = settings.searchTimeoutMs;
-    const queries = [];
-    if (track.title && track.artist) queries.push(`${track.title} ${track.artist}`);
-    if (track.title) queries.push(track.title);
+    const queries = buildSearchQueries(track, { limit: 4 });
 
     const seen = new Set();
     const results = [];
@@ -365,7 +418,7 @@ const kugou = {
 
   async search(track, settings) {
     const timeoutMs = settings.searchTimeoutMs;
-    const queries = [track.title, track.title && track.artist ? `${track.title} ${track.artist}` : null].filter(
+    const queries = [track.title, ...buildSearchQueries(track, { limit: 4 })].filter(
       Boolean,
     );
 

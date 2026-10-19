@@ -80,12 +80,24 @@ Windows SMTC  →  bundled bridge  →  Chorus  →  OBS Browser Source
 
 **1️⃣ Download the installer**
 
-Grab `Chorus-<version>-Setup.exe` from [the releases page](https://github.com/wixicle727/Chorus/releases)
-and run it. It installs for the current user by default, so **no administrator rights are
-needed**, and everything the app owns lives inside its own folder.
+Grab `Chorus-v<version>-Setup.exe` from [the releases page](https://github.com/wixicle727/Chorus/releases)
+and run it. Windows asks for **administrator rights** — one UAC prompt, before Setup even
+starts — and it installs for all users under `C:\Program Files\Chorus`. You can pick a
+different folder on the *Select Destination Location* page. Chorus itself runs without
+elevated rights once it starts.
+
+Setup needs the elevation so it can create its own folder: on current Windows builds the
+per-user path refuses that one call and the installer stops with "Setup was unable to
+create the directory … Error 5: Access is denied" before it copies anything. That is why
+the prompt is unavoidable rather than optional.
+
+> [!NOTE]
+> Your settings, lyric cache and history live next to `Chorus.exe` when that folder is
+> writable — so a non-default install folder keeps its data there. When it is not (the
+> default `Program Files` case), they go to `%LOCALAPPDATA%\Chorus\data` instead.
 
 > [!TIP]
-> Prefer not to install anything? Take `Chorus-<version>-portable.zip` instead and run
+> Prefer not to install anything? Take `Chorus-v<version>-portable.zip` instead and run
 > `Chorus.exe` from wherever you unzip it. Node.js is inside the executable either way,
 > so there is nothing to install separately.
 

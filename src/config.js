@@ -291,10 +291,21 @@ export const DEFAULTS = {
     showTimes: true,
     /** Dim the artwork and show a pause glyph while playback is paused. */
     showPausedState: true,
+    /** Hide the whole card while playback is paused, as the lyric overlay can. */
+    hideOnPause: false,
     /** Hide the whole card when nothing is playing. */
     hideWhenIdle: true,
+    /**
+     * Which look the plate uses.
+     *
+     * 'cover' — the artwork's most-used colour as a near-solid wash, with the text colour
+     *   chosen for contrast against it, so it reads as a definite colour.
+     * 'blur'  — the artwork itself, heavily blurred and darkened behind a light scrim.
+     */
+    plateStyle: 'cover',
     widthPx: 500,
-    fontSizePx: 20,
+    // 18 keeps the whole card inside the ~140 px height of the documented OBS source size.
+    fontSizePx: 18,
     /** 'left' | 'center' | 'right' */
     textAlign: 'left',
     borderRadiusPx: 20,

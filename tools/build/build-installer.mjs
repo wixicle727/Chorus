@@ -15,6 +15,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { forceAdminManifest, readManifest } from './force-admin-manifest.mjs';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..', '..');
 const BUILD_DIR = path.join(ROOT, 'build');
@@ -42,7 +44,7 @@ function resolveIscc() {
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
 }
 
-function main() {
+async function main() {
   if (process.platform !== 'win32') fail('a Windows installer can only be built on Windows.');
 
   const iscc = resolveIscc();
@@ -89,10 +91,20 @@ function main() {
     fail(`Inno Setup reported success but ${setup} is missing.`);
   }
 
+  // Inno's PrivilegesRequired=admin did not make Windows elevate this setup on the
+  // user's machine, so the manifest is rewritten to demand it. This runs after the
+  // compile because Inno Setup overwrites the exe on every build.
+  const manifest = await forceAdminManifest(setup);
+  const level = (await readManifest(setup)).level;
+  if (level !== 'requireAdministrator') {
+    fail(`could not force elevation: requestedExecutionLevel is ${level}`);
+  }
+  log(`requestedExecutionLevel: ${level} (${manifest.changed ? 'patched' : 'already set'})`);
+
   const mb = (fs.statSync(setup).size / 1048576).toFixed(1);
   console.log('');
   log(`done: build/Chorus-v${pkg.version}-Setup.exe (${mb} MB)`);
-  log('installs per-user by default, so it needs no administrator rights');
+  log('Windows will ask for administrator rights before Setup runs.');
 }
 
-main();
+await main();

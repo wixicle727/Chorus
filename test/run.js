@@ -23,6 +23,9 @@ import { scoreCandidate, isCandidateAcceptable, createRegistry, resolveLyrics, p
 import { selectSession, BridgeClient, PlaybackStatus, looksLikeStreamTitle } from '../src/core/bridge.js';
 import { PROVIDERS, plainToEstimatedLrc } from '../src/providers/index.js';
 import { compareVersions, parseVersion } from '../src/core/update.js';
+import { Engine } from '../src/core/engine.js';
+import { Store } from '../src/core/store.js';
+import { loadConfig } from '../src/config.js';
 
 const OFFLINE_ONLY = process.argv.includes('--offline');
 
@@ -864,6 +867,108 @@ if (!OFFLINE_ONLY) {
   }
 } else {
   console.log('\n\u001b[33mSkipping live network tests (--offline)\u001b[0m');
+}
+
+/* ------------------------------------------------------------------ *
+ * Cover art
+ * ------------------------------------------------------------------ */
+
+section('Cover art (player, then lyrics provider)');
+
+{
+  // The playing session is the preferred source; the lyrics provider is the fallback for
+  // players that publish no artwork (a browser tab, or a text-only player). A stubbed
+  // provider keeps this offline.
+  const netease = PROVIDERS.find((p) => p.id === 'netease');
+  check('NetEase exposes fetchCover', typeof netease?.fetchCover === 'function');
+
+  const engine = new Engine(loadConfig(), new Store(loadConfig()));
+  engine.state.track = { appId: 'X.exe', title: 't', artist: 'a', album: '', durationMs: 1000 };
+  engine.state.sessions = [{ appId: 'X.exe', thumbnail: null }];
+  engine.currentTrackId = 'cover-test';
+  engine.state.provider = 'netease';
+  engine.state.candidate = { key: '1', title: 't', artist: 'a' };
+
+  let calls = 0;
+  const real = engine.registry.get('netease');
+  engine.registry.set('netease', {
+    ...real,
+    fetchCover: async () => {
+      calls += 1;
+      return 'https://example.test/cover.jpg';
+    },
+  });
+
+  check(
+    'with no player artwork the cover is null until the lookup resolves',
+    engine.coverFor(engine.state.track) === null,
+  );
+
+  await new Promise((r) => setTimeout(r, 400));
+  check(
+    'the provider cover is used once it resolves',
+    engine.coverFor(engine.state.track) === 'https://example.test/cover.jpg',
+  );
+  check('the provider is asked exactly once', calls === 1, `${calls} calls`);
+
+  // Repeated polls must not re-ask, or a 500 ms poll would hammer the provider.
+  for (let i = 0; i < 5; i += 1) engine.coverFor(engine.state.track);
+  await new Promise((r) => setTimeout(r, 200));
+  check('repeated polls do not re-request the cover', calls === 1, `${calls} calls`);
+
+  // The player's own artwork always wins over a provider cover.
+  engine.state.sessions = [{ appId: 'X.exe', thumbnail: 'data:image/png;base64,PLAYER' }];
+  check(
+    'player artwork takes precedence over a provider cover',
+    engine.coverFor(engine.state.track) === 'data:image/png;base64,PLAYER',
+  );
+
+  // Changing track must not leave the previous album's artwork on screen.
+  engine.coverFallback = 'https://example.test/old.jpg';
+  engine.onTrackChanged({ appId: 'X.exe', title: 'next', artist: 'b', album: '', durationMs: 1000 });
+  check('a track change clears the previous provider cover', engine.coverFallback === null);
+}
+
+/* ------------------------------------------------------------------ *
+ * Localised titles
+ * ------------------------------------------------------------------ */
+
+section('Titles the player has translated');
+
+{
+  /**
+   * A player that translates a title (Spotify shows たいせつなもの as "My Precious") produces
+   * evidence indistinguishable from a genuinely different song by the same artist: matching
+   * duration, matching artist, unrelated title.
+   *
+   * The candidate is scored rather than accepted, and these checks pin that down. Relaxing the
+   * title gate for this case was tried and reverted: it also accepted ドラマチックガール in
+   * place of 晴天 (same artist, same 269000 ms), which would show wrong lyrics. Showing none
+   * is the better failure.
+   */
+  const settings = { minScore: 40, durationToleranceMs: 8000 };
+  const localised = { title: 'My Precious', artist: '初星学園', album: 'My Precious', durationMs: 316365 };
+  const original = { key: '2669726395', title: 'たいせつなもの', artist: '初星学園, フワリ, 秦谷美鈴', album: 'たいせつなもの', durationMs: 316000 };
+
+  const scored = scoreCandidate(original, localised, settings);
+  check('a translated title scores no title similarity', scored.breakdown.title === 0, String(scored.breakdown.title));
+  check(
+    'but duration and artist still line up, so the score is respectable',
+    scored.breakdown.duration > 0.95 && scored.breakdown.artist >= 0.8,
+    JSON.stringify(scored.breakdown),
+  );
+  check(
+    'a translated title is nonetheless rejected, because it is unprovable',
+    !isCandidateAcceptable(original, localised, settings),
+  );
+
+  // The reason it cannot be relaxed: this pair looks identical to the case above.
+  const impostor = { title: 'ドラマチックガール', artist: '周杰伦', durationMs: 269000 };
+  const realTrack = { title: '晴天', artist: '周杰伦', durationMs: 269000 };
+  check(
+    'a same-artist song of the same length is rejected too',
+    !isCandidateAcceptable(impostor, realTrack, settings),
+  );
 }
 
 /* ------------------------------------------------------------------ *

@@ -395,6 +395,22 @@
             <div class="control"><label class="switch"><input type="checkbox" id="npHideWhenIdle" /><span class="track"></span></label></div>
           </div>
           <div class="row">
+            <div class="info"><div class="t">Hide while paused</div><div class="d">Blank the card when playback stops, instead of dimming it and showing a pause glyph.</div></div>
+            <div class="control"><label class="switch"><input type="checkbox" id="npHideOnPause" /><span class="track"></span></label></div>
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="t">Plate style</div>
+              <div class="d"><strong>Cover colour</strong> washes the card in the cover's most-used colour and switches the text to stay readable. <strong>Blurred artwork</strong> uses the cover itself, blurred and darkened behind a light scrim.</div>
+            </div>
+            <div class="control">
+              <select id="npPlateStyle">
+                <option value="cover">Cover colour</option>
+                <option value="blur">Blurred artwork</option>
+              </select>
+            </div>
+          </div>
+          <div class="row">
             <div class="info"><div class="t">Width</div><div class="d">Card width in pixels; the card is centred in whatever size the OBS source is.</div></div>
             <div class="control"><input class="num" type="number" id="npWidth" min="200" max="1920" step="10" /></div>
           </div>
@@ -426,6 +442,20 @@
             <iframe id="stylePreview" src="/overlay?debug=0" style="width:100%;height:300px;border:0;display:block;background:transparent"></iframe>
           </div>
           <div class="hint">This is the real overlay page, so what you see is exactly what OBS composites.</div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">♪</span>Now playing preview</div>
+        <div class="card" style="padding:12px">
+          <div style="border-radius:6px;overflow:hidden;background:linear-gradient(135deg,#1c1c24,#101014);">
+            <iframe id="nowPlayingPreview" src="/nowplaying" style="width:100%;height:150px;border:0;display:block;background:transparent"></iframe>
+          </div>
+          <div class="hint">
+            Also the real page, so changes apply here immediately. It is centred in the frame —
+            size the OBS browser source around <strong>600 × 140</strong>.
+            <button class="btn small" id="reloadNowPlayingPreview" style="margin-left:6px">Reload</button>
+          </div>
         </div>
       </div>
     </section>
@@ -984,6 +1014,8 @@ function setControlsFromConfig() {
   $('npShowProgress').checked = np.showProgress !== false;
   $('npShowPausedState').checked = np.showPausedState !== false;
   $('npHideWhenIdle').checked = np.hideWhenIdle !== false;
+  $('npHideOnPause').checked = Boolean(np.hideOnPause);
+  $('npPlateStyle').value = np.plateStyle === 'blur' ? 'blur' : 'cover';
   $('npWidth').value = np.widthPx ?? 500;
   $('npFontSize').value = np.fontSizePx ?? 20;
   $('npRadius').value = np.borderRadiusPx ?? 20;
@@ -1070,6 +1102,13 @@ function wireControls() {
   bindCheckbox('hideWhenNoLyrics', 'overlay.hideWhenNoLyrics');
 
   // Now playing overlay. Numbers are coerced so an empty field cannot save NaN.
+  // `npIds` is collected as the controls are bound, then used to reload the preview after
+  // any change, so the two cannot drift apart as more controls are added.
+  const npIds = [
+    'npShowCover', 'npShowTitle', 'npShowArtist', 'npShowProgress',
+    'npShowPausedState', 'npHideWhenIdle', 'npHideOnPause', 'npPlateStyle',
+    'npWidth', 'npFontSize', 'npRadius', 'npTextAlign',
+  ];
   for (const [id, path] of [
     ['npShowCover', 'nowPlaying.showCover'],
     ['npShowTitle', 'nowPlaying.showTitle'],
@@ -1077,6 +1116,7 @@ function wireControls() {
     ['npShowProgress', 'nowPlaying.showProgress'],
     ['npShowPausedState', 'nowPlaying.showPausedState'],
     ['npHideWhenIdle', 'nowPlaying.hideWhenIdle'],
+    ['npHideOnPause', 'nowPlaying.hideOnPause'],
   ]) {
     bindCheckbox(id, path);
   }
@@ -1093,6 +1133,14 @@ function wireControls() {
     });
   }
   bindSelect('npTextAlign', 'nowPlaying.textAlign');
+  bindSelect('npPlateStyle', 'nowPlaying.plateStyle');
+
+  // Reload the preview after any now-playing change. The page picks its settings up over the
+  // socket, so a reload is what shows the effect.
+  for (const id of npIds) {
+    $(id).addEventListener('change', () => setTimeout(refreshNowPlayingPreview, 150));
+  }
+  $('reloadNowPlayingPreview').addEventListener('click', () => refreshNowPlayingPreview());
 
   $('offsetMs').addEventListener('change', (e) => setOffset(Number(e.target.value)));
   $('offsetReset').addEventListener('click', () => setOffset(0));
@@ -1422,6 +1470,17 @@ function updateOverlayUrl() {
 
 function refreshPreview() {
   $('stylePreview').src = $('overlayUrl').value;
+}
+
+/**
+ * Reload the now-playing preview.
+ *
+ * It is its own iframe because the two overlays are separate pages. Reassigning `src`
+ * is what makes a settings change visible: the page receives its settings over the
+ * socket, so a fresh load re-reads them.
+ */
+function refreshNowPlayingPreview() {
+  $('nowPlayingPreview').src = $('nowPlayingUrl').value;
 }
 
 /* ------------------------------ live state ------------------------------ */

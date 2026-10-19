@@ -397,14 +397,19 @@
       const paused = !timerAnchor.playing && Boolean(track);
 
       /**
-       * "Hide when there are no lyrics" renders nothing at all for this track.
+       * "Hide when there are no lyrics" renders nothing for a track that has none.
        *
        * The whole page is blanked rather than just the lines, because the notice plate
        * ("no lyrics found for this track") is itself something a streamer does not want on
        * screen. The overlay is a transparent OBS browser source, so hiding the stage is
        * enough — nothing else needs to be torn down.
+       *
+       * A search still in progress does NOT count as "no lyrics". Blanking then would flash
+       * the overlay away and back on every track change, and would hide a perfectly good
+       * result that was still being fetched.
        */
-      const noLyrics = lines.length === 0 || status === 'notfound';
+      const searchFinished = status === 'notfound' || status === 'instrumental';
+      const noLyrics = searchFinished && lines.length === 0;
       const blanked = settings.hideWhenNoLyrics && noLyrics;
 
       const stageVisibility = blanked ? 'hidden' : 'visible';
