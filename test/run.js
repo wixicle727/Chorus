@@ -1014,16 +1014,22 @@ async function testQishui() {
 
   const { qishuiRichToLrc } = await import('../src/providers/index.js');
 
-  // Milliseconds become LRC centiseconds, and the word tokens are stripped: the
-  // overlay works line by line, so per-word timing is noise.
+  // Syllable timings are kept as enhanced-LRC word tags rather than discarded:
+  // they are the only exact timing any of our sources offers.
+  const karaoke = qishuiRichToLrc('[15278,3319]<0,403,0>雨<560,403,0>下<1120,403,0>了');
   check(
-    'a karaoke line becomes a plain LRC line',
-    qishuiRichToLrc('[15278,3319]<0,403,0>雨<560,403,0>下<1120,403,0>了') === '[00:15.27]雨下了\n',
-    JSON.stringify(qishuiRichToLrc('[15278,3319]<0,403,0>雨<560,403,0>下<1120,403,0>了')),
+    'a karaoke line keeps its syllable stamps',
+    karaoke === '[00:15.27]<00:15.27>雨<00:15.83>下<00:16.39>了<00:18.59>\n',
+    JSON.stringify(karaoke),
+  );
+  check(
+    'the closing tag marks where the singing stops',
+    karaoke.trimEnd().endsWith('<00:18.59>'),
+    JSON.stringify(karaoke),
   );
   check(
     'a line over a minute gets the right stamp',
-    qishuiRichToLrc('[125500,2000]<0,100,0>chorus') === '[02:05.50]chorus\n',
+    qishuiRichToLrc('[125500,2000]<0,100,0>chorus') === '[02:05.50]<02:05.50>chorus<02:07.50>\n',
   );
   // Without a stamp there is nothing to sync to, so such lines are dropped rather
   // than estimated into the middle of the song.
@@ -1031,11 +1037,68 @@ async function testQishui() {
   check('an empty document yields nothing', qishuiRichToLrc('') === '' && qishuiRichToLrc(undefined) === '');
   check(
     'blank lines inside a timed document are skipped, not emitted empty',
-    qishuiRichToLrc('[1000,10]<0,1,0>a\n\n[2000,10]<0,1,0>b') === '[00:01.00]a\n[00:02.00]b\n',
+    qishuiRichToLrc('[1000,10]<0,1,0>a\n\n[2000,10]<0,1,0>b').split('\n').filter(Boolean).length === 2,
   );
   check(
     'a zero stamp is kept',
-    qishuiRichToLrc('[0,500]<0,1,0>opening') === '[00:00.00]opening\n',
+    qishuiRichToLrc('[0,500]<0,1,0>opening') === '[00:00.00]<00:00.00>opening<00:00.50>\n',
+  );
+  check(
+    'a line with no word tokens stays plain',
+    qishuiRichToLrc('[5000,1000]plain words') === '[00:05.00]plain words\n',
+  );
+
+  // The enhanced tags have to survive the pipeline, or the fill has nothing to read.
+  const parsedWords = parseLrc(karaoke);
+  check(
+    'the parser reads the syllables back',
+    JSON.stringify(parsedWords.lines[0]?.words) ===
+      JSON.stringify([
+        { timeMs: 15270, text: '雨' },
+        { timeMs: 15830, text: '下' },
+        { timeMs: 16390, text: '了' },
+      ]),
+    JSON.stringify(parsedWords.lines[0]?.words),
+  );
+  check(
+    'the parser strips the tags from the text',
+    parsedWords.lines[0]?.text === '雨下了',
+    parsedWords.lines[0]?.text,
+  );
+  check(
+    'the parser records where the line stops singing',
+    parsedWords.lines[0]?.wordsEndMs === 18590,
+    String(parsedWords.lines[0]?.wordsEndMs),
+  );
+  check('a plain LRC line has no word data', parseLrc('[00:01.00]plain').lines[0]?.words === undefined);
+  check(
+    'several timestamps on one line keep the plain text only',
+    (() => {
+      const lines = parseLrc('[00:01.00][00:10.00]<00:01.00>a<00:02.00>b').lines;
+      return lines.length === 2 && lines.every((l) => l.words === undefined && l.text === 'ab');
+    })(),
+  );
+
+  const mergedDoc = buildLyricDoc(mergeLyrics(karaoke));
+  check(
+    'the merged document carries the syllables',
+    mergedDoc[0]?.words?.length === 3,
+    JSON.stringify(mergedDoc[0]?.words),
+  );
+  check(
+    'each syllable ends where the next begins',
+    mergedDoc[0]?.words?.[0]?.endMs === 15830 && mergedDoc[0]?.words?.[1]?.endMs === 16390,
+    JSON.stringify(mergedDoc[0]?.words),
+  );
+  check(
+    'the last syllable stops when the singing stops',
+    mergedDoc[0]?.words?.[2]?.endMs === 18590,
+    JSON.stringify(mergedDoc[0]?.words),
+  );
+  check(
+    'the line itself still runs past the last syllable',
+    mergedDoc[0]?.endMs === 19270,
+    String(mergedDoc[0]?.endMs),
   );
   check(
     'the provider is registered and exports its id',

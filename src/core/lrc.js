@@ -20,6 +20,34 @@ const META_TAG = /^[\[［]([a-zA-Z]{1,10}):(.*)[\]］]$/;
 // <mm:ss.xxx> word-level timing inside enhanced LRC
 const WORD_TAG = /[<＜]\d{1,3}:\d{1,2}(?:[.:：]\d{1,3})?[>＞]/g;
 
+/**
+ * Enhanced LRC puts a stamp in front of every syllable: `<00:12.34>word`.
+ * The tag we strip above throws that timing away, so it is read separately here.
+ */
+const WORD_TAG_TEXT = /[<＜](\d{1,3}):(\d{1,2})(?:[.:：](\d{1,3}))?[>＞]([^<＜]*)/g;
+
+/** @returns {{words: Array<{timeMs:number,text:string}>, endsAtMs: number|null}|null} null for plain LRC. */
+function parseWordTags(body) {
+  WORD_TAG_TEXT.lastIndex = 0;
+  const words = [];
+  // A trailing tag with no text is how a line says when its last syllable stops.
+  let endsAtMs = null;
+  let match;
+  while ((match = WORD_TAG_TEXT.exec(body)) !== null) {
+    const minutes = Number.parseInt(match[1], 10);
+    const seconds = Number.parseInt(match[2], 10);
+    const timeMs = minutes * 60000 + seconds * 1000 + fractionToMs(match[3]);
+    const text = match[4].replace(/\s+/g, ' ').trim();
+    if (text) {
+      words.push({ timeMs, text });
+      endsAtMs = null;
+    } else {
+      endsAtMs = timeMs;
+    }
+  }
+  return words.length ? { words, endsAtMs } : null;
+}
+
 /** Fractional part: 2 digits = centiseconds, 3 digits = milliseconds, 1 digit = tenths. */
 function fractionToMs(fraction) {
   if (!fraction) return 0;
@@ -42,7 +70,9 @@ export function parseLrc(text) {
   const lines = [];
 
   for (const rawLine of text.split(/\r\n|\n|\r/)) {
-    const line = rawLine.replace(WORD_TAG, '').trim();
+    // Word tags are kept until the line has been read: they *are* the syllable
+    // timings, so stripping them here (as this used to) threw them away.
+    const line = rawLine.trim();
     if (!line) continue;
 
     // Metadata-only line, e.g. [ar:周杰伦]
@@ -71,10 +101,23 @@ export function parseLrc(text) {
 
     // The lyric text is everything after the final timestamp tag.
     const lastTagEnd = line.lastIndexOf(']') >= 0 ? line.lastIndexOf(']') + 1 : 0;
-    const content = line.slice(lastTagEnd).replace(WORD_TAG, '').trim();
+    const body = line.slice(lastTagEnd);
+    const content = body.replace(WORD_TAG, '').replace(/\s+/g, ' ').trim();
     if (!content) continue;
 
-    for (const timeMs of stamps) lines.push({ timeMs, text: content });
+    // Syllable timings can only belong to one moment, so a line that carries
+    // several timestamps (a repeated chorus line) keeps the plain text only.
+    const syllableTiming = stamps.length === 1 ? parseWordTags(body) : null;
+
+    for (const timeMs of stamps) {
+      if (!syllableTiming) {
+        lines.push({ timeMs, text: content });
+        continue;
+      }
+      const line = { timeMs, text: content, words: syllableTiming.words };
+      if (Number.isFinite(syllableTiming.endsAtMs)) line.wordsEndMs = syllableTiming.endsAtMs;
+      lines.push(line);
+    }
   }
 
   lines.sort((a, b) => a.timeMs - b.timeMs);
@@ -83,7 +126,16 @@ export function parseLrc(text) {
   result.offsetMs = offsetMs;
   result.meta = meta;
   result.lines = offsetMs
-    ? lines.map((l) => ({ ...l, timeMs: Math.max(0, l.timeMs - offsetMs) }))
+    ? lines.map((l) => ({
+        ...l,
+        timeMs: Math.max(0, l.timeMs - offsetMs),
+        ...(l.words
+          ? { words: l.words.map((w) => ({ ...w, timeMs: Math.max(0, w.timeMs - offsetMs) })) }
+          : {}),
+        ...(Number.isFinite(l.wordsEndMs)
+          ? { wordsEndMs: Math.max(0, l.wordsEndMs - offsetMs) }
+          : {}),
+      }))
     : lines;
   return result;
 }
@@ -133,6 +185,9 @@ export function mergeLyrics(originalText, translationText = null) {
     timeMs: l.timeMs,
     text: l.text,
     translation: null,
+    // Syllable timings survive the merge; they are what drives the karaoke fill.
+    ...(l.words ? { words: l.words } : {}),
+    ...(Number.isFinite(l.wordsEndMs) ? { wordsEndMs: l.wordsEndMs } : {}),
   }));
 
   const transLines = filterNoise(translation.lines);
@@ -234,7 +289,19 @@ export function buildLyricDoc(lines, trackDurationMs = 0) {
     // A gap longer than 8s is an instrumental break; do not hold the line that long.
     if (endMs - line.timeMs > 8000) endMs = line.timeMs + 8000;
     if (endMs <= line.timeMs) endMs = line.timeMs + 1000;
-    return { timeMs: line.timeMs, endMs, text: line.text, translation: line.translation || null };
+    const doc = { timeMs: line.timeMs, endMs, text: line.text, translation: line.translation || null };
+    if (line.words && line.words.length) {
+      // Each syllable runs until the next one starts; the last one stops at the
+      // line's declared end when the source said when it does, so the fill does
+      // not sweep through the silence before the next line.
+      const declaredEnd = Number.isFinite(line.wordsEndMs) ? line.wordsEndMs : endMs;
+      doc.words = line.words.map((word, i) => {
+        const nextWord = line.words[i + 1];
+        const rawEnd = nextWord ? nextWord.timeMs : Math.min(Math.max(declaredEnd, word.timeMs + 1), endMs);
+        return { timeMs: word.timeMs, text: word.text, endMs: Math.max(word.timeMs + 1, rawEnd) };
+      });
+    }
+    return doc;
   });
   return withEnd;
 }

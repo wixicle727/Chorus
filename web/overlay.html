@@ -445,6 +445,34 @@
       const t = positionMs + offset;
       if (t <= start) return 0;
       if (t >= end) return 1;
+
+      // A source that stamps every syllable (Qishui) knows exactly when each one
+      // is sung, so the fill follows those stamps instead of sweeping at a
+      // constant rate — which is only ever an average of how people sing.
+      const words = Array.isArray(line.words) && line.words.length ? line.words : null;
+      if (words) {
+        const total = words.reduce((n, w) => n + Math.max(String(w.text ?? '').length, 1), 0);
+        let sung = 0;
+        for (let i = 0; i < words.length; i += 1) {
+          const w = words[i];
+          const at = Number(w.timeMs);
+          if (!Number.isFinite(at)) continue;
+          const until = Number.isFinite(w.endMs)
+            ? w.endMs
+            : i + 1 < words.length
+              ? Number(words[i + 1].timeMs)
+              : end;
+          const chars = Math.max(String(w.text ?? '').length, 1);
+          if (t >= until) {
+            sung += chars;
+            continue;
+          }
+          if (t > at) sung += until > at ? (chars * (t - at)) / (until - at) : chars;
+          break;
+        }
+        return Math.min(1, sung / total);
+      }
+
       return (t - start) / (end - start);
     }
 

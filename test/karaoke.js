@@ -155,6 +155,53 @@ check('the active line shows the copy', /li\.active\.karaoke \.karaoke-scan \{[\
 check('the copy carries no shadow of its own', !/\.main\.karaoke-scan \{[^}]*filter: drop-shadow/.test(source));
 check('pausing still blanks the whole list', /listEl\.style\.visibility = visibility/.test(source));
 
+section('Syllable-timed lines');
+
+/*
+   Most sources only say when a line starts, so the fill has to sweep. A source that
+   stamps every syllable (Qishui) says when each one is sung, and those stamps win:
+   the fill then follows the voice instead of averaging it.
+*/
+const WORDED = [
+  {
+    timeMs: 10000,
+    endMs: 20000,
+    text: 'ABB',
+    words: [
+      { timeMs: 10000, text: 'A', endMs: 12000 },
+      { timeMs: 12000, text: 'BB', endMs: 14000 },
+    ],
+  },
+];
+
+check('a third of the way through a syllable is a third of its characters',
+  Math.abs(progressAt(0, 11000, WORDED, 0) - 1 / 6) < 1e-9);
+check('the second syllable starts where the first ends',
+  Math.abs(progressAt(0, 12000, WORDED, 0) - 1 / 3) < 1e-9);
+check('halfway through a two-character syllable adds half of it',
+  Math.abs(progressAt(0, 13000, WORDED, 0) - 2 / 3) < 1e-9);
+check('the fill finishes when the last syllable does', progressAt(0, 14000, WORDED, 0) === 1);
+// The point of the stamps: the old sweep ran to the next line's start, so it kept
+// colouring through silence that no one was singing over.
+check('silence after the last syllable stays full, not half swept',
+  progressAt(0, 15000, WORDED, 0) === 1);
+check('before the first syllable is still 0', progressAt(0, 9000, WORDED, 0) === 0);
+check('a syllable with no end falls back to the next one',
+  (() => {
+    const doc = [{ timeMs: 0, endMs: 4000, text: 'ab', words: [{ timeMs: 0, text: 'a' }, { timeMs: 2000, text: 'b' }] }];
+    return Math.abs(progressAt(0, 1000, doc, 0) - 0.25) < 1e-9;
+  })());
+check('the last syllable fills to the line end when it has no end',
+  (() => {
+    const doc = [{ timeMs: 0, endMs: 4000, text: 'ab', words: [{ timeMs: 0, text: 'a' }, { timeMs: 2000, text: 'b' }] }];
+    return Math.abs(progressAt(0, 3000, doc, 0) - 0.75) < 1e-9;
+  })());
+check('a plain line still sweeps evenly',
+  Math.abs(progressAt(0, 11000, [{ timeMs: 10000, endMs: 20000, text: 'AB' }], 0) - 0.1) < 1e-9);
+check('an empty word list falls through to the sweep',
+  Math.abs(progressAt(0, 11000, [{ timeMs: 10000, endMs: 20000, text: 'AB', words: [] }], 0) - 0.1) < 1e-9);
+check('the page reads the syllable stamps', /Array\.isArray\(line\.words\)/.test(source));
+
 console.log(
   failed === 0
     ? `\n\u001b[32mAll ${passed} checks passed\u001b[0m`

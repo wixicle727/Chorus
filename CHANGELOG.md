@@ -5,7 +5,19 @@ All notable changes to Chorus are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.2] — 2026-10-20
+
+### Fixed
+
+- **The karaoke fill now follows the singer, not the clock.** Lyric sources stamp one
+  time per line, so the fill could only sweep at a constant rate from the line's start to
+  the next line's start — ahead of the voice early in a line, behind it later, and still
+  colouring through the silence before the next line begins. Qishui publishes per-syllable
+  timings and they were being discarded during conversion; they are now carried through as
+  enhanced-LRC word tags, read by the parser, and used to drive the fill. Measured on
+  夜に駆ける, the constant sweep sat 0.25 s from the voice at the median and 0.68 s for
+  one syllable in ten; the worst line was 66 % out. Sources without syllable data keep the
+  estimate, so nothing else changes.
 
 ## [1.4.1] — 2026-10-20
 
@@ -388,7 +400,9 @@ First release.
 - Lyrics are fetched from public endpoints using only the track title and artist.
   No account, no API key, no telemetry.
 
-[Unreleased]: https://github.com/wixicle727/Chorus/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/wixicle727/Chorus/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/wixicle727/Chorus/compare/v1.4.1...v1.4.2
+[1.4.1]: https://github.com/wixicle727/Chorus/releases/tag/v1.4.1
 [1.4.0]: https://github.com/wixicle727/Chorus/releases/tag/v1.4.0
 [1.3.0]: https://github.com/wixicle727/Chorus/releases/tag/v1.3.0
 [1.2.0]: https://github.com/wixicle727/Chorus/releases/tag/v1.2.0

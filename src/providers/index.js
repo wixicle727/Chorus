@@ -536,8 +536,19 @@ function lrcStamp(ms) {
   return `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(centis).padStart(2, '0')}]`;
 }
 
+/** The same instant in the form enhanced LRC uses inside a line: `<mm:ss.xx>`. */
+function lrcWordStamp(ms) {
+  return `<${lrcStamp(ms).slice(1, -1)}>`;
+}
+
 /**
- * Convert one of Qishui's karaoke lyric documents into standard LRC.
+ * Convert one of Qishui's karaoke lyric documents into enhanced LRC.
+ *
+ * Qishui stamps every syllable — `[1671,1767]<0,469,0>沈<469,365,0>む…` — which is
+ * the one thing no other source of ours offers, so those timings are kept as
+ * `<mm:ss.xx>` word tags instead of being thrown away. parseLrc reads them back,
+ * the overlay fills the line from them rather than guessing a sweep, and every
+ * other consumer still sees plain text.
  *
  * Lines without a leading `[start,duration]` are dropped: without a stamp they
  * would have to be estimated, and mixing timed and untimed lines in one document
@@ -549,15 +560,28 @@ function lrcStamp(ms) {
 export function qishuiRichToLrc(content) {
   const out = [];
   for (const rawLine of String(content ?? '').split(/\r?\n/)) {
-    const match = rawLine.match(/^\[(\d+),\d+\](.*)$/);
+    const match = rawLine.match(/^\[(\d+),(\d+)\](.*)$/);
     if (!match) continue;
-    const text = match[2]
-      // Word tokens: `<offset,duration,flag>` — the flag carries no text.
-      .replace(/<[^>]*>/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (!text) continue;
-    out.push(`${lrcStamp(Number(match[1]))}${text}`);
+
+    const lineStart = Number(match[1]);
+    const lineEnd = lineStart + Number(match[2]);
+    // Word tokens: `<offset,duration,flag>text` — the offset is relative to the line.
+    const words = [];
+    for (const token of match[3].matchAll(/<(\d+),(\d+),\d+>([^<]*)/g)) {
+      if (!token[3].trim()) continue;
+      words.push({ at: lineStart + Number(token[1]), text: token[3] });
+    }
+
+    if (!words.length) {
+      const plain = match[3].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+      if (plain) out.push(`${lrcStamp(lineStart)}${plain}`);
+      continue;
+    }
+
+    // A trailing tag with no text closes the line, so the fill stops when the
+    // singing does instead of running on through the silence that follows.
+    const tagged = words.map((w) => `${lrcWordStamp(w.at)}${w.text}`).join('');
+    out.push(`${lrcStamp(lineStart)}${tagged}${lrcWordStamp(lineEnd)}`);
   }
   return out.length ? `${out.join('\n')}\n` : '';
 }
