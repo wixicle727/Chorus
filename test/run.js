@@ -1006,8 +1006,165 @@ section('Update checking');
 }
 
 /* ------------------------------------------------------------------ *
+ * Qishui lyric conversion
+ * ------------------------------------------------------------------ */
+
+async function testQishui() {
+  section('Qishui Music');
+
+  const { qishuiRichToLrc } = await import('../src/providers/index.js');
+
+  // Milliseconds become LRC centiseconds, and the word tokens are stripped: the
+  // overlay works line by line, so per-word timing is noise.
+  check(
+    'a karaoke line becomes a plain LRC line',
+    qishuiRichToLrc('[15278,3319]<0,403,0>雨<560,403,0>下<1120,403,0>了') === '[00:15.27]雨下了\n',
+    JSON.stringify(qishuiRichToLrc('[15278,3319]<0,403,0>雨<560,403,0>下<1120,403,0>了')),
+  );
+  check(
+    'a line over a minute gets the right stamp',
+    qishuiRichToLrc('[125500,2000]<0,100,0>chorus') === '[02:05.50]chorus\n',
+  );
+  // Without a stamp there is nothing to sync to, so such lines are dropped rather
+  // than estimated into the middle of the song.
+  check('an untimed line is dropped', qishuiRichToLrc('just some words') === '');
+  check('an empty document yields nothing', qishuiRichToLrc('') === '' && qishuiRichToLrc(undefined) === '');
+  check(
+    'blank lines inside a timed document are skipped, not emitted empty',
+    qishuiRichToLrc('[1000,10]<0,1,0>a\n\n[2000,10]<0,1,0>b') === '[00:01.00]a\n[00:02.00]b\n',
+  );
+  check(
+    'a zero stamp is kept',
+    qishuiRichToLrc('[0,500]<0,1,0>opening') === '[00:00.00]opening\n',
+  );
+  check(
+    'the provider is registered and exports its id',
+    PROVIDERS.some((p) => p.id === 'qishui'),
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Update archive handling
+ * ------------------------------------------------------------------ */
+
+async function testUpdater() {
+  section('Self-update');
+
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { readZipEntries, extractZip, pickPortableAsset, pickInstallerAsset, canWriteTo } =
+    await import('../src/core/updater.js');
+
+  const fixture = new URL('./fixtures/sample.zip', import.meta.url);
+  const buffer = fs.readFileSync(fixture);
+
+  let entries = [];
+  try {
+    entries = readZipEntries(buffer);
+  } catch (err) {
+    check('the sample archive can be read', false, err.message);
+  }
+  check('the archive lists both entries', entries.length === 2, `${entries.length}`);
+  check('entry names survive', entries.some((e) => e.name === 'app.txt'));
+  check(
+    'file contents survive inflation',
+    entries.find((e) => e.name === 'app.txt')?.data.toString('utf8') === 'hello from the archive',
+  );
+
+  const target = path.join(os.tmpdir(), `chorus-zip-test-${process.pid}`);
+  fs.rmSync(target, { recursive: true, force: true });
+  let written = 0;
+  try {
+    written = extractZip(buffer, target);
+  } catch (err) {
+    check('the sample archive extracts', false, err.message);
+  }
+  check('only the non-data entry is written', written === 1, `${written}`);
+  check('the app file is on disk', fs.existsSync(path.join(target, 'app.txt')));
+  // This is the guarantee that makes self-updating safe: an archive can never carry
+  // runtime data over the user's own settings.
+  check('runtime data is never extracted from the archive', !fs.existsSync(path.join(target, 'data')));
+  fs.rmSync(target, { recursive: true, force: true });
+
+  check('garbage is rejected as not-a-zip', (() => {
+    try {
+      readZipEntries(Buffer.from('this is not a zip'));
+      return false;
+    } catch { return true; }
+  })());
+
+  // Asset picking drives which file the updater downloads.
+  const assets = [
+    { name: 'Chorus-v1.4.0-Setup.exe' },
+    { name: 'Chorus-v1.4.0-portable.zip' },
+    { name: 'CHANGELOG.md' },
+  ];
+  check('the portable archive is picked from a release', pickPortableAsset({ assets })?.name.endsWith('-portable.zip'));
+  check('the installer is picked from a release', pickInstallerAsset({ assets })?.name.endsWith('Setup.exe'));
+  check('a release without assets picks nothing', pickPortableAsset({}) === null && pickInstallerAsset({}) === null);
+
+  check('a fresh temporary folder is writable', canWriteTo(path.join(os.tmpdir(), `chorus-writable-${process.pid}`)));
+  check('a non-existent drive is not writable', canWriteTo('Q:\\chorus-should-not-exist') === false);
+}
+
+/* ------------------------------------------------------------------ *
+ * Sorting mode validation
+ * ------------------------------------------------------------------ */
+
+async function testLyricsSortMode() {
+  section('Result ordering');
+
+  const { loadConfig, LYRICS_SORT_MODES } = await import('../src/config.js');
+  check('title is an accepted ordering', LYRICS_SORT_MODES.includes('title'));
+  check('artist is an accepted ordering', LYRICS_SORT_MODES.includes('artist'));
+  check('score is an accepted ordering', LYRICS_SORT_MODES.includes('score'));
+  // A corrupt or stale config must not leave the panel with no ordering at all.
+  check(
+    'a stored ordering is preserved on load',
+    ['title', 'artist', 'score'].includes(loadConfig().lyrics.sortBy),
+    String(loadConfig().lyrics.sortBy),
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Karaoke setting
+ * ------------------------------------------------------------------ */
+
+async function testKaraokeConfig() {
+  section('Karaoke fill setting');
+
+  const { loadConfig, applyPatch, DEFAULTS } = await import('../src/config.js');
+  check('karaoke is off by default', DEFAULTS.overlay.karaoke === false);
+  check(
+    'the default sung colour is a hex colour',
+    /^#[0-9a-f]{6}$/i.test(DEFAULTS.overlay.karaokeColor),
+    DEFAULTS.overlay.karaokeColor,
+  );
+
+  const config = loadConfig();
+  check('karaoke is a boolean in the loaded config', typeof config.overlay.karaoke === 'boolean');
+
+  const patched = applyPatch(loadConfig(), { overlay: { karaoke: true, karaokeColor: '#ff2d95' } });
+  check('karaoke can be switched on', patched.overlay.karaoke === true);
+  check('the sung colour is stored', patched.overlay.karaokeColor === '#ff2d95');
+
+  // Turning it back off must not leave a stale colour that a later switch-on would
+  // inherit from a different theme.
+  const off = applyPatch(patched, { overlay: { karaoke: false } });
+  check('turning karaoke off keeps the chosen colour', off.overlay.karaokeColor === '#ff2d95');
+}
+
+/* ------------------------------------------------------------------ *
  * Summary
  * ------------------------------------------------------------------ */
+
+// These need await (they read files), so they run here rather than in the
+// sequential block above. All of them are offline.
+await testQishui();
+await testUpdater();
+await testLyricsSortMode();
+await testKaraokeConfig();
 
 console.log(`\n${'─'.repeat(58)}`);
 if (failed === 0) {

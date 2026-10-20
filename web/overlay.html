@@ -24,6 +24,10 @@
     --color-main: #ffffff;
     --color-sub: #e0e0e0;
     --color-active: #ffffff;
+    /* Sung-text colour for the karaoke fill; the panel overrides it. */
+    --color-karaoke: #4cc2ff;
+    /* Width of the soft edge at the leading end of the fill. */
+    --karaoke-feather: 0.12em;
     --shadow: 3px;
     --font-family: "Segoe UI", "Microsoft YaHei UI", "Meiryo", system-ui, sans-serif;
     --opacity-idle: 0.55;
@@ -128,6 +132,113 @@
 
   li.lead .main { opacity: var(--opacity-idle); }
 
+  /* ---------------------------------------------------------------------
+     Karaoke fill.
+
+     The sung part of the active line is a second copy of the text, masked from
+     the left by --karaoke-progress. Two stacked copies of the same glyphs
+     always line up exactly, which a gradient painted behind the text could not
+     promise once the line is scaled, translated by the carousel, or scrolled by
+     the marquee.
+
+     The property is registered so the browser can interpolate it, and it
+     inherits, because the mask lives on the copy while the value is written on
+     the list item.
+     --------------------------------------------------------------------- */
+  @property --karaoke-progress {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 0%;
+  }
+
+  .karaoke-stack { display: inline-grid; }
+  .karaoke-stack > .main { grid-area: 1 / 1; }
+
+  /*
+     A mask only paints inside the element's box. These glyphs are taller than
+     their line box — descenders and the drop shadow both hang below it — so the
+     fill was being sliced off flat at the baseline and the sung half of the line
+     lost its p, g and y tails.
+
+     Padding grows the box past the ink; the equal negative margin gives the space
+     back, so the item still occupies exactly its old place in the row and the two
+     copies stay aligned with each other.
+  */
+  .karaoke-stack > .main {
+    padding: 0.5em 0;
+    margin: -0.5em 0;
+  }
+
+  li.karaoke .main.base { opacity: 1; }
+  /*
+     The unsung part of the line keeps the active colour: the blue sweep alone
+     already reads as progress, and dimming the rest made the line being sung look
+     fainter than the idle lines around it.
+  */
+
+  /* Specificity note: `li.active .main` sets the active colour, so the copy must
+     out-specify it or the fill would be painted in the active colour and vanish.
+
+     The copy is hidden with opacity rather than visibility. `visibility` is
+     inherited but can be overridden by a child, so `visibility: visible` here
+     defeated the "hide while paused" rule and left the blue text on screen when
+     everything else had been blanked. Opacity applies to the whole subtree and
+     cannot be undone by a descendant, so pausing hides the fill too. */
+  /*
+     No shadow of its own. The copy is painted directly on top of the base text,
+     so the base's shadow already surrounds the blue glyphs; giving the copy a
+     second drop shadow only darkened the overlap and made the sung half of the
+     line look smudged next to the unsung half.
+  */
+  li.karaoke .main.karaoke-scan {
+    color: var(--color-karaoke);
+    opacity: 0;
+    pointer-events: none;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+  }
+
+  li.active.karaoke .karaoke-scan {
+    opacity: 1;
+    /*
+       Clamp the feathered edge to whichever side is closer to an end. Without
+       this, a progress of 0% or 100% would put the fade stops in the wrong
+       order and the mask would eat a sliver of the finished text.
+    */
+    --karaoke-edge: min(
+      var(--karaoke-feather),
+      var(--karaoke-progress),
+      calc(100% - var(--karaoke-progress))
+    );
+    -webkit-mask-image: linear-gradient(
+      to right,
+      #000 0,
+      #000 calc(var(--karaoke-progress) - var(--karaoke-edge)),
+      transparent calc(var(--karaoke-progress) + var(--karaoke-edge)),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      #000 0,
+      #000 calc(var(--karaoke-progress) - var(--karaoke-edge)),
+      transparent calc(var(--karaoke-progress) + var(--karaoke-edge)),
+      transparent 100%
+    );
+  }
+
+  /* Without mask support the fill still works, just with a hard edge. */
+  @supports not ((mask-image: linear-gradient(to right, #000, transparent)) or
+      (-webkit-mask-image: linear-gradient(to right, #000, transparent))) {
+    li.active.karaoke .karaoke-scan {
+      -webkit-mask-image: none;
+      mask-image: none;
+      clip-path: inset(0 calc(100% - var(--karaoke-progress)) 0 0);
+    }
+  }
+
+  /* A tick every 50ms is visible as stepping at this size; let CSS close the gap. */
+  li.karaoke.singing { transition: --karaoke-progress 90ms linear; }
+
   /* Marquee for lines wider than the source: scroll across during the line. */
   .track {
     display: inline-block;
@@ -209,6 +320,8 @@
   </div>
 
   <script type="module">
+    import { setLanguage, t, normaliseLanguage } from '/js/i18n.js';
+
     /**
      * Overlay runtime.
      *
@@ -221,6 +334,19 @@
     const WINDOW = Number(params.get('window') || 3);      // visible line slots
     const SHOW_DEBUG = params.get('debug') === '1';
     const SHOW_PROGRESS = params.get('progress') === '1';
+
+    /*
+       The overlay is a separate document from the panel, so it resolves the
+       language itself. A `?lang=` parameter wins, which is how the panel's live
+       preview shows the language before the setting is saved.
+    */
+    const LANG_PARAM = params.get('lang');
+    fetch('/api/config')
+      .then((response) => response.json())
+      .then((config) => setLanguage(LANG_PARAM || normaliseLanguage(config?.app?.language)))
+      .catch(() => {
+        if (LANG_PARAM) setLanguage(LANG_PARAM);
+      });
 
     const listEl = document.getElementById('list');
     const stageEl = document.getElementById('stage');
@@ -246,6 +372,8 @@
       colorMain: '#ffffff',
       colorSub: '#e0e0e0',
       colorActive: '#ffffff',
+      karaoke: false,
+      karaokeColor: '#4cc2ff',
       shadow: 3,
       uppercase: false,
       idleOpacity: 0.55,
@@ -265,6 +393,8 @@
     let offsetMs = 0;
     let sourceWidth = 0;
     let blankUntilNextTrack = false;
+    /** The real line elements, cached so the per-tick fill needs no DOM query. */
+    let lineEls = [];
 
     function currentPositionMs() {
       const elapsed = performance.now() - timerAnchor.at;
@@ -287,6 +417,62 @@
       return answer;
     }
 
+    /**
+     * How far through the line at `index` a position is, as 0..1.
+     *
+     * Most lyric sources time whole lines and nothing finer, so the fill runs
+     * evenly from one line's start to the next line's start. That is what a
+     * karaoke track with no word timings does, and it is the honest reading of
+     * the data: the sweep reaches the end of the line exactly as the next line
+     * begins.
+     *
+     * Pure on purpose — the timing maths is the part worth testing, and it can
+     * be exercised without a browser. Returns null when there is no line.
+     */
+    function karaokeProgressAt(index, positionMs, allLines = lines, offset = offsetMs) {
+      if (!Number.isInteger(index) || index < 0) return null;
+      const line = allLines[index];
+      if (!line) return null;
+
+      const start = line.timeMs;
+      const next = allLines[index + 1];
+      let end = Number.isFinite(line.endMs) && line.endMs > start ? line.endMs : start + 4000;
+      // A line that the document believes lasts past the next line's start would
+      // otherwise keep filling while the following line is already being sung.
+      if (next && next.timeMs > start && next.timeMs < end) end = next.timeMs;
+      if (!(end > start)) return 0;
+
+      const t = positionMs + offset;
+      if (t <= start) return 0;
+      if (t >= end) return 1;
+      return (t - start) / (end - start);
+    }
+
+    /**
+     * Paint the fill on the active line.
+     *
+     * Runs on every tick rather than only when the line changes, because the
+     * fill moves continuously. Pausing needs no special case: the dead-reckoned
+     * position stops advancing, so the fill freezes with it.
+     */
+    function updateKaraoke(positionMs) {
+      if (!settings.karaoke) return;
+      const position = positionMs ?? currentPositionMs();
+      const index = indexAt(position);
+      const progress = karaokeProgressAt(index, position);
+
+      for (const li of lineEls) {
+        const i = Number(li.dataset.index);
+        if (i === index && progress !== null) {
+          li.classList.add('singing');
+          li.style.setProperty('--karaoke-progress', `${(progress * 100).toFixed(2)}%`);
+        } else {
+          li.classList.remove('singing');
+          li.style.removeProperty('--karaoke-progress');
+        }
+      }
+    }
+
     function applySettings(next) {
       if (!next) return;
       settings = { ...settings, ...next };
@@ -300,6 +486,7 @@
       root.setProperty('--color-main', settings.colorMain);
       root.setProperty('--color-sub', settings.colorSub);
       root.setProperty('--color-active', settings.colorActive);
+      root.setProperty('--color-karaoke', settings.karaokeColor || '#4cc2ff');
       root.setProperty('--shadow', `${settings.shadow}px`);
       root.setProperty('--font-family', settings.fontFamily || 'inherit');
       root.setProperty('--text-transform', settings.uppercase ? 'uppercase' : 'none');
@@ -314,14 +501,16 @@
     /** Rebuild the line elements when the lyric document or settings change. */
     function buildLines() {
       listEl.innerHTML = '';
+      lineEls = [];
       const fragment = document.createDocumentFragment();
       lines.forEach((line, index) => {
         const li = document.createElement('li');
-        li.className = 'line';
+        li.className = settings.karaoke ? 'line karaoke' : 'line';
         li.dataset.index = String(index);
+        lineEls.push(li);
 
         const main = document.createElement('p');
-        main.className = 'main';
+        main.className = settings.karaoke ? 'main base' : 'main';
         const mainText = settings.translationAsMain && line.translation ? line.translation : line.text;
         main.textContent = mainText || (settings.showPlaceholder ? '♪' : '');
 
@@ -336,7 +525,24 @@
         // Wrap in a track span so the marquee can translate the text independently.
         const mainTrack = document.createElement('span');
         mainTrack.className = 'track';
-        mainTrack.appendChild(main);
+        if (settings.karaoke) {
+          /*
+             Karaoke needs a second, identically-set copy of the same text on top
+             of the first. It is aria-hidden because a screen reader would
+             otherwise read every line twice.
+          */
+          const stack = document.createElement('span');
+          stack.className = 'karaoke-stack';
+          const scan = document.createElement('p');
+          scan.className = 'main karaoke-scan';
+          scan.setAttribute('aria-hidden', 'true');
+          scan.textContent = main.textContent;
+          stack.appendChild(main);
+          stack.appendChild(scan);
+          mainTrack.appendChild(stack);
+        } else {
+          mainTrack.appendChild(main);
+        }
         li.appendChild(mainTrack);
 
         if (sub.textContent) {
@@ -442,27 +648,27 @@
       if (!showPlate) return;
 
       if (status === 'searching') {
-        noticeTitleEl.textContent = track ? track.title : 'Searching…';
-        noticeHintEl.textContent = 'looking for lyrics';
+        noticeTitleEl.textContent = track ? track.title : t('Searching…');
+        noticeHintEl.textContent = t('looking for lyrics');
       } else if (status === 'notfound') {
-        noticeTitleEl.textContent = track ? track.title : 'No lyrics';
+        noticeTitleEl.textContent = track ? track.title : t('No lyrics');
         // The fallback option can deliberately leave this blank until the next
         // song rather than showing a low-confidence match.
         noticeHintEl.textContent = blankUntilNextTrack
-          ? 'no confident lyrics for this track'
-          : 'no lyrics found for this track';
+          ? t('no confident lyrics for this track')
+          : t('no lyrics found for this track');
       } else if (status === 'instrumental') {
-        noticeTitleEl.textContent = track ? track.title : 'Instrumental';
+        noticeTitleEl.textContent = track ? track.title : t('Instrumental');
         noticeHintEl.textContent = '';
       } else if (status === 'bridge-down') {
-        noticeTitleEl.textContent = 'Waiting for smtc-bridge';
-        noticeHintEl.textContent = 'start SMTC-Bridge, then this fills in automatically';
+        noticeTitleEl.textContent = t('Waiting for smtc-bridge');
+        noticeHintEl.textContent = t('start SMTC-Bridge, then this fills in automatically');
       } else if (!track) {
-        noticeTitleEl.textContent = 'Nothing playing';
-        noticeHintEl.textContent = 'play something in your music app';
+        noticeTitleEl.textContent = t('Nothing playing');
+        noticeHintEl.textContent = t('play something in your music app');
       } else {
         noticeTitleEl.textContent = track.title;
-        noticeHintEl.textContent = 'loading lyrics…';
+        noticeHintEl.textContent = t('loading lyrics…');
       }
     }
 
@@ -484,6 +690,7 @@
         `status ${status}`,
         `lines ${lines.length}`,
         `idx ${lastIndex}`,
+        `kk ${settings.karaoke ? (lineEls[lastIndex]?.style.getPropertyValue('--karaoke-progress') || '0%') : 'off'}`,
         `pos ${(currentPositionMs() / 1000).toFixed(1)}s`,
         `off ${offsetMs}ms`,
         `ticks ${tickCount}`,
@@ -590,6 +797,7 @@
       updateNotice();
       updateProgress(message.playback);
       render(true);
+      updateKaraoke();
       updateDebug();
     }
 
@@ -602,6 +810,7 @@
         settings.uppercase,
         settings.showPlaceholder,
         settings.visibleLines,
+        settings.karaoke,
       ].join('|');
       if (signature !== builtSettingsSignature) {
         builtSettingsSignature = signature;
@@ -632,6 +841,7 @@
       tickCount += 1;
       lastTickWall = performance.now();
       render(false);
+      updateKaraoke();
       updateDebug();
     }
 

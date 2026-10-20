@@ -268,10 +268,30 @@ section('Control panel DOM contract');
   ok('has the player card ids', ['artBox', 'trackTitle', 'trackArtist', 'posBar', 'offsetChip'].every((i) => ids.includes(i)));
   ok('has the lyric controls', ['providersList', 'resultsList', 'manualLrc', 'acceptScore', 'minScore', 'durationTolerance', 'preferredProvider'].every((i) => ids.includes(i)));
   ok('has the fallback controls', ['fallbackEnabled', 'fallbackMinScore', 'fallbackMinScoreVal'].every((i) => ids.includes(i)));
+  ok('has the result-ordering control', ids.includes('resultsSort'));
+  ok(
+    'the ordering control offers title, artist and score',
+    ['title', 'artist', 'score'].every((v) => new RegExp(`<option value="${v}"`).test(control)),
+  );
+  ok('title is the default ordering in the markup', /<option value="title">/.test(control));
+  // The update row only appears once the server has staged a download.
+  ok(
+    'has the self-update controls',
+    ['installUpdate', 'updateProgressRow', 'updateProgressBar', 'updateProgressLabel', 'updateDownload', 'checkUpdate'].every((i) => ids.includes(i)),
+  );
+  ok('the install button starts hidden', /id="installUpdate"[^>]*hidden/.test(control));
+  ok('the progress row starts hidden', /id="updateProgressRow"[^>]*hidden/.test(control));
+  ok('the update section promises the data folder is untouched', /never touched/.test(control));
+  // The user asked for a check on every panel open, not only on the About page.
+  ok('the panel checks for updates on boot', /Check for a newer release every time/.test(control));
   ok(
     'has the style controls',
-    ['fontFamily', 'lineHeight', 'lineScale', 'activeMainScale', 'inactiveMainScale', 'activeSubScale', 'idleOpacity', 'shadow', 'uppercase', 'colorActive', 'colorMain', 'colorSub', 'alignment', 'showTranslation', 'translationAsMain', 'showPlaceholder', 'hideOnPause', 'offsetMs'].every((i) => ids.includes(i)),
+    ['fontFamily', 'lineHeight', 'lineScale', 'activeMainScale', 'inactiveMainScale', 'activeSubScale', 'idleOpacity', 'shadow', 'uppercase', 'colorActive', 'colorMain', 'colorSub', 'karaoke', 'karaokeColor', 'karaokeColorHex', 'alignment', 'showTranslation', 'translationAsMain', 'showPlaceholder', 'hideOnPause', 'offsetMs'].every((i) => ids.includes(i)),
   );
+  // The markup default (not the live config) — the panel sets the real state from
+  // the server, so this guards against shipping it pre-ticked.
+  ok('the karaoke switch is unticked in the markup', /<input type="checkbox" id="karaoke" \/>/.test(control));
+  ok('the karaoke controls are reachable from the panel script', /\$\('karaoke'\)\.checked/.test(control) && /\$\('karaokeColor'\)/.test(control));
   ok('has the OBS page controls', ['overlayUrl', 'debugMode', 'showProgress', 'copyOverlayUrl', 'healthBridge'].every((i) => ids.includes(i)));
   ok('has the cache page controls', ['cacheStats', 'cacheTable', 'cacheQuery', 'historyList'].every((i) => ids.includes(i)));
   ok('has a live preview iframe', control.includes('id="stylePreview"'));
@@ -345,6 +365,8 @@ section('API surface');
     // with ok:false — which is what the panel renders — so this stays a liveness check
     // rather than a network dependency, and the suite passes offline.
     ['/api/update', 'GET'],
+    // Progress of a self-update: idle until the panel asks for an install.
+    ['/api/update/progress', 'GET'],
   ]) {
     const r = await fetch(BASE + path, { method });
     let json = null;
@@ -357,6 +379,17 @@ section('API surface');
   }
   const bad = await fetch(`${BASE}/api/nope`);
   ok('unknown /api path 404s as JSON', bad.status === 404 && Boolean((await bad.json()).error), `status=${bad.status}`);
+
+  const providers = await (await fetch(`${BASE}/api/providers`)).json();
+  ok(
+    'every lyric source is advertised to the panel',
+    ['lrclib', 'netease', 'qq', 'kugou', 'qishui'].every((id) => (providers.providers ?? []).some((p) => p.id === id)),
+    JSON.stringify((providers.providers ?? []).map((p) => p.id)),
+  );
+  ok(
+    'Qishui is listed with a human-readable label',
+    (providers.providers ?? []).find((p) => p.id === 'qishui')?.label === 'Qishui Music',
+  );
 }
 
 section('Branding');
@@ -445,6 +478,82 @@ section('Live state');
       && config.lyrics.fallback.minScore <= 100,
     String(config.lyrics.fallback.minScore),
   );
+}
+
+section('Qishui and result ordering');
+{
+  const control = (await get('/control')).text;
+  const registry = await (await fetch(`${BASE}/api/providers`)).json();
+  const ids = (registry.providers ?? []).map((p) => p.id);
+
+  ok('Qishui is registered as a lyric source', ids.includes('qishui'), ids.join(','));
+  ok('Qishui has a display name', (registry.providers ?? []).find((p) => p.id === 'qishui')?.label === 'Qishui Music');
+  ok('the panel builds a toggle per registered provider', /data-provider="\$\{provider\.id\}"/.test(control));
+  ok('the toggle list is fed from the provider registry', /api\/providers/.test(control));
+  ok('the About page describes Qishui', /Qishui Music<\/div>/.test(control));
+
+  ok('the panel has the sort dropdown', control.includes('id="resultsSort"'));
+  const modes = [...control.matchAll(/<option value="(title|artist|score)"/g)].map((m) => m[1]);
+  ok('the dropdown offers title, artist and score',
+    ['title', 'artist', 'score'].every((m) => modes.includes(m)), modes.join(','));
+  ok('title comes first, so it is the default',
+    control.indexOf('<option value="title"') < control.indexOf('<option value="artist"'), 'order');
+  ok('the ordering lives in one function the tests can reach', /function orderResults\(/.test(control));
+  ok('the panel refreshes the update check when it opens', /refreshUpdate\('fresh'\)/.test(control));
+}
+
+section('Interface language');
+{
+  const control = (await get('/control')).text;
+  const overlayPage = (await get('/overlay')).text;
+
+  for (const file of ['/js/i18n.js', '/js/i18n.zh-Hans.js', '/js/i18n.zh-Hant.js']) {
+    const response = await fetch(`${BASE}${file}`);
+    ok(`${file} is served`, response.status === 200, `status ${response.status}`);
+    ok(`${file} is javascript`, /javascript/i.test(response.headers.get('content-type') ?? ''),
+      response.headers.get('content-type'));
+  }
+
+  const dictionaries = await (await fetch(`${BASE}/js/i18n.zh-Hans.js`)).text();
+  ok('the simplified dictionary is a module', /export default \{/.test(dictionaries));
+  ok('the simplified dictionary carries Chinese text', /[\u4e00-\u9fff]/.test(dictionaries));
+
+  ok('the panel imports the i18n module', /from '\/js\/i18n\.js'/.test(control));
+  ok('the overlay imports the i18n module', /from '\/js\/i18n\.js'/.test(overlayPage));
+  ok('the panel offers all three languages',
+    ['en', 'zh-Hans', 'zh-Hant'].every((id) => control.includes(`value="${id}"`)), 'options');
+  ok('the overlay can be forced into a language for previews', /params\.get\('lang'\)/.test(overlayPage));
+  ok('overlay notices go through the translator', /t\('Nothing playing'\)/.test(overlayPage));
+
+  const config = await (await fetch(`${BASE}/api/config`)).json();
+  ok('the config carries the interface language',
+    ['en', 'zh-Hans', 'zh-Hant'].includes(config.app?.language), config.app?.language);
+}
+
+section('Update section');
+{
+  const control = (await get('/control')).text;
+  const info = await (await fetch(`${BASE}/api/update`)).json();
+  ok('the update endpoint answers', typeof info.ok === 'boolean', JSON.stringify({ ok: info.ok, reason: info.reason }));
+  if (info.ok) {
+    ok('it reports the running version', info.current === (await (await fetch(`${BASE}/api/health`)).json()).version,
+      info.current);
+    ok('it reports whether an update is available', typeof info.updateAvailable === 'boolean');
+    ok('it links to the releases page', String(info.releasesUrl).includes('github.com'));
+  } else {
+    ok('an unreachable GitHub is reported, not thrown', typeof info.reason === 'string' && info.reason.length > 0, info.reason);
+  }
+
+  const progress = await (await fetch(`${BASE}/api/update/progress`)).json();
+  ok('progress is reported before an update runs', progress.ok === true && progress.state === 'idle', JSON.stringify(progress));
+
+  ok('the panel has a Check now button', control.includes('id="checkUpdate"'));
+  ok('the panel has an install button', control.includes('id="installUpdate"'));
+  ok('the panel has a progress row', control.includes('id="updateProgressRow"'));
+  ok('a hidden element really is hidden', /\[hidden\] \{ display: none !important; \}/.test(
+    (await get('/css/control.css')).text,
+  ));
+  ok('installing goes through the apply endpoint', /api\/update\/apply/.test(control));
 }
 
 console.log(`\n${'─'.repeat(56)}`);

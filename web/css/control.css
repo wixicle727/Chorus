@@ -238,6 +238,11 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   padding: 14px 16px;
   border-bottom: 1px solid var(--divider);
 }
+
+/* The HTML `hidden` attribute loses to any rule that sets display (`.row` and
+ * `.callout` are both flex), which would leave e.g. the update progress bar on screen
+ * before an update has started. Enforce it once, here. */
+[hidden] { display: none !important; }
 .row:last-child { border-bottom: 0; }
 .row .info { flex: 1; min-width: 0; }
 .row .info .t { font-size: 14px; }

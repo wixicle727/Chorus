@@ -56,6 +56,10 @@ jobs:
       - name: Engine timing tests
         run: node test/engine.js
 
+      # No browser needed: the page modules are imported directly in Node.
+      - name: Overlay and page logic tests
+        run: node test/nowplaying.js && node test/control.js && node test/karaoke.js && node test/i18n.js && node test/updater.js
+
       # The server is started and tested inside ONE step on purpose. GitHub Actions
       # reaps a step's process tree when the step ends, so a server launched in an
       # earlier step cannot be relied on to still be listening.

@@ -15,8 +15,14 @@ const REPO = 'wixicle727/Chorus';
 const RELEASES_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
 const RELEASES_PAGE = `https://github.com/${REPO}/releases`;
 
-/** How long a successful result is reused before asking GitHub again. */
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+/**
+ * How long a successful result is reused before asking GitHub again.
+ *
+ * Deliberately short: the control panel asks on every page load so that a release
+ * published while Chorus is running appears without a restart, and half an hour
+ * keeps a user reloading the panel well inside the 60-requests-an-hour allowance.
+ */
+const CACHE_TTL_MS = 30 * 60 * 1000;
 /** Failures are cached far more briefly, so a transient outage does not stick. */
 const ERROR_TTL_MS = 5 * 60 * 1000;
 
@@ -69,11 +75,15 @@ function unavailable(reason, extra = {}) {
 /**
  * Check for a newer release.
  *
- * @param {{force?: boolean, timeoutMs?: number}} options
+ * @param {{force?: boolean, maxAgeMs?: number|null, timeoutMs?: number}} options
+ *   `force` ignores the cache entirely; `maxAgeMs` reuses a cached answer only while it
+ *   is younger than that, which is how opening the panel gets a fresh check without
+ *   spending a GitHub request on every refresh.
  * @returns {Promise<object>} always resolves; `ok: false` carries a `reason`
  */
-export async function checkForUpdate({ force = false, timeoutMs = 8000 } = {}) {
-  if (!force && cache && Date.now() - cache.at < cache.ttl) {
+export async function checkForUpdate({ force = false, maxAgeMs = null, timeoutMs = 8000 } = {}) {
+  const usableFor = maxAgeMs == null ? cache?.ttl : Math.min(cache?.ttl ?? Infinity, maxAgeMs);
+  if (!force && cache && Date.now() - cache.at < usableFor) {
     return { ...cache.value, cached: true };
   }
 

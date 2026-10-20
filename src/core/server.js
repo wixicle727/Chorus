@@ -37,10 +37,18 @@ import { WebSocketServer } from './websocket.js';
 import { webAssets } from './embedded.js';
 import { LOG_DIR } from './paths.js';
 import { checkForUpdate } from './update.js';
+import { stageUpdate, applyStagedUpdate, updateProgress } from './updater.js';
 import { toLrcText } from './lrc.js';
 import { getAutostartStatus, enableAutostart, disableAutostart } from './autostart.js';
 
 const WEB_DIR = path.join(ROOT, 'web');
+
+/**
+ * How stale a cached update answer may be when the panel is opened. Opening the panel
+ * asks for a fresh check, but reloading it in a loop must not spend a GitHub request
+ * each time (unauthenticated calls are limited to 60 per hour).
+ */
+const FRESH_CHECK_MS = 60 * 1000;
 
 /**
  * Front-end files carried inside a bundled executable, keyed by request path.
@@ -287,9 +295,40 @@ export function createServer({ engine, store, getConfig, setConfig, onShutdown =
 
       if (pathname === '/api/update' && method === 'GET') {
         // `?force=1` ignores the cache, for the panel's explicit "Check now" button.
+        // `?fresh=1` only insists the answer be recent, which is what opening the
+        // panel asks for: a reload fifty times in a row costs one GitHub request.
         const force = url.searchParams.get('force') === '1';
-        const result = await checkForUpdate({ force });
+        const fresh = url.searchParams.get('fresh') === '1';
+        const result = await checkForUpdate(fresh && !force ? { maxAgeMs: FRESH_CHECK_MS } : { force });
         sendJson(res, 200, result);
+        return;
+      }
+
+      if (pathname === '/api/update/progress' && method === 'GET') {
+        // Polled while an update downloads, because that can take minutes and the
+        // socket only carries playback state.
+        sendJson(res, 200, { ok: true, ...updateProgress() });
+        return;
+      }
+
+      if (pathname === '/api/update/apply' && method === 'POST') {
+        // Downloads the newer release and stages it. The response is sent before the
+        // swap starts so the panel can show what is about to happen.
+        const staged = await stageUpdate({ pid: process.pid });
+        if (!staged.ok) {
+          sendJson(res, 400, staged);
+          return;
+        }
+        sendJson(res, 200, staged);
+        // Give the response time to flush, then hand over. The helper waits for this
+        // process to exit before replacing any file.
+        setTimeout(() => {
+          applyStagedUpdate(staged);
+          setTimeout(() => {
+            if (typeof onShutdown === 'function') onShutdown();
+            else process.exit(0);
+          }, 400);
+        }, 300);
         return;
       }
 

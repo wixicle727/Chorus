@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="README.zh-CN.md">简体中文</a> · <a href="README.md">English</a>
+<a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a>
 
 <img src="assets/chorus-banner.png" alt="Chorus — live lyrics for OBS, from Windows SMTC" width="720">
 
@@ -9,7 +9,7 @@
 **Live lyrics for OBS, straight from whatever is playing in Windows.**
 
 Reads the current track from Windows System Media Transport Controls, finds the
-original lyrics by title and artist across four platforms, and renders a
+original lyrics by title and artist across five platforms, and renders a
 transparent, auto-scrolling lyrics page you drop into OBS as a Browser Source.
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?logo=windows&logoColor=white)](https://github.com/wixicle727/Chorus)
@@ -67,13 +67,15 @@ Windows SMTC  →  bundled bridge  →  Chorus  →  OBS Browser Source
 | | |
 |---|---|
 | 🎧 **Works with what you already use** | Spotify, Apple Music, Deezer, YouTube Music, browsers, foobar2000, VLC, AIMP, MusicBee, mpv, NetEase, QQ Music, Kugou — anything that publishes a Windows media session. Pick your platform and Chorus sticks to it. |
-| 🔍 **Four lyric sources, in parallel** | LRCLIB, NetEase Cloud Music, QQ Music and Kugou, scored and ranked. |
-| 🈶 **Strong CJK coverage** | NetEase, QQ Music and Kugou alongside LRCLIB — and NetEase/QQ bring translations too. |
+| 🔍 **Five lyric sources, in parallel** | LRCLIB, NetEase Cloud Music, QQ Music, Kugou and Qishui Music, scored and ranked. |
+| 🈶 **Strong CJK coverage** | NetEase, QQ Music, Kugou and Qishui alongside LRCLIB — and NetEase, QQ and Qishui bring translations too. |
 | 🖤 **Not broken by Alt+Tab** | Timer-driven, so lyrics keep scrolling while OBS sits in the background. |
-| 🎛️ **Everything adjustable live** | Font, sizes, colours, alignment, shadow, translation, offset — applied to the running OBS source instantly. |
+| 🎤 **Karaoke fill** | The active line fills with colour from left to right as it is sung. |
+| 🎛️ **Everything adjustable live** | Font, sizes, colours, alignment, shadow, translation, karaoke, offset — applied to the running OBS source instantly. |
 | 💿 **A second overlay for "what's playing"** | Cover art, title, artist and progress. Works for any player, and for tracks that have no lyrics at all. |
 | 🙈 **Silent when there is nothing to show** | Optionally render nothing at all for a track without lyrics, instead of a "no lyrics found" notice. |
-| 🔄 **Tells you when there's a new version** | Checks GitHub Releases from the About page. Nothing downloads without you. |
+| 🔄 **Updates itself** | Checks GitHub Releases every time the panel opens, then downloads and installs the new version on request — keeping your settings and lyrics cache, and backing them up first. |
+| 🌏 **Speaks your language** | English, Simplified Chinese and Traditional Chinese, switchable in Application → *Language*. The panel and both overlays change together. |
 | 🪶 **Zero dependencies** | Pure Node standard library and plain HTML/CSS/JS. One self-contained `.exe`, with the Node runtime inside it. |
 
 ---
@@ -314,7 +316,7 @@ light or dark shell, a left nav rail, one control right-aligned per row.
 |---|---|
 | 🎵 **Now playing** | Artwork, title, artist, progress, live sessions, primary platform, bridge address, poll interval |
 | 🔍 **Lyrics** | Enable/disable each source, scoring thresholds, every search candidate with its score, "apply this result", paste-your-own LRC |
-| 🎨 **Style** | Font, line height, active/idle text sizes, idle opacity, shadow, uppercase, three colours, alignment, translation handling, global offset, live preview |
+| 🎨 **Style** | Font, line height, active/idle text sizes, idle opacity, shadow, uppercase, three colours, karaoke fill and its colour, alignment, translation handling, global offset, live preview |
 | 📺 **OBS setup** | Copy-ready browser-source URL, debug overlay, progress bar, health checks |
 | 💾 **Cache & history** | Cached lyrics with per-entry delete, recently played tracks and how each lookup went |
 | ⚙️ **Application** | Start with Windows, tray icon, port, server log, quit |

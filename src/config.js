@@ -161,14 +161,43 @@ export const PLATFORMS = [
 
 export const PLATFORM_IDS = PLATFORMS.map((p) => p.id);
 
-export const PROVIDER_IDS = ['lrclib', 'netease', 'qq', 'kugou'];
+export const PROVIDER_IDS = ['lrclib', 'netease', 'qq', 'kugou', 'qishui'];
 
 export const PROVIDER_LABELS = {
   lrclib: 'LRCLIB',
   netease: 'NetEase Cloud Music',
   qq: 'QQ Music',
   kugou: 'Kugou',
+  qishui: 'Qishui Music',
 };
+
+/** Accepted values for `lyrics.sortBy`; anything else falls back to `title`. */
+export const LYRICS_SORT_MODES = ['title', 'artist', 'score'];
+
+/** Interface languages the panel and both overlays ship. */
+export const LANGUAGES = [
+  { id: 'en', label: 'English' },
+  { id: 'zh-Hans', label: '简体中文' },
+  { id: 'zh-Hant', label: '繁體中文' },
+];
+
+export const LANGUAGE_IDS = LANGUAGES.map((language) => language.id);
+
+/**
+ * Map whatever a config file (or a person) wrote to one of `LANGUAGE_IDS`.
+ *
+ * Mirrors `normaliseLanguage` in web/js/i18n.js — the browser module cannot be
+ * imported here, and a value the server accepts but the page rejects would leave
+ * the panel English while the config claims otherwise.
+ */
+export function normaliseLanguage(value) {
+  const raw = String(value ?? '').trim().toLowerCase().replace(/_/g, '-');
+  if (!raw) return 'en';
+  if (raw === 'en' || raw.startsWith('en-')) return 'en';
+  if (raw.includes('hant') || raw.endsWith('-tw') || raw.endsWith('-hk') || raw.endsWith('-mo')) return 'zh-Hant';
+  if (raw === 'zh' || raw.includes('hans') || raw.startsWith('zh-')) return 'zh-Hans';
+  return 'en';
+}
 
 export const DEFAULTS = {
   server: {
@@ -183,6 +212,13 @@ export const DEFAULTS = {
     autostart: false,
     /** Also open the control panel in a browser when launched at sign-in. */
     openControlOnStart: false,
+    /**
+     * Interface language, shared by the panel and both overlays.
+     *
+     * 'en' | 'zh-Hans' | 'zh-Hant'. The overlays read it from the same config, so
+     * a Chinese panel does not leave an English overlay on stream.
+     */
+    language: 'en',
   },
   smtc: {
     // Chorus starts its own bundled bridge on this port by default, so there is no
@@ -218,6 +254,13 @@ export const DEFAULTS = {
     preferredProvider: 'lrclib',
     // A candidate at or above this confidence is accepted outright.
     acceptScore: 75,
+    /**
+     * Ordering of the candidate list in the control panel.
+     *
+     * Display only: which candidate is *used* is always decided by score. `title`
+     * is the default because matching a track is usually a reading task.
+     */
+    sortBy: 'title',
     // Candidates below this are never used.
     minScore: 40,
     // How far a candidate's duration may differ from the SMTC track length.
@@ -259,6 +302,12 @@ export const DEFAULTS = {
     colorMain: '#ffffff',
     colorSub: '#e0e0e0',
     colorActive: '#ffffff',
+    /**
+     * Karaoke fill: the sung part of the active line is painted in this colour,
+     * sweeping left to right as the line is sung.
+     */
+    karaoke: false,
+    karaokeColor: '#4cc2ff',
     shadow: 3,
     uppercase: false,
     /** Opacity applied to non-active lines. */
@@ -404,6 +453,8 @@ export function loadConfig() {
   merged.lyrics.enabled = (Array.isArray(merged.lyrics.enabled) ? merged.lyrics.enabled : PROVIDER_IDS)
     .filter((id) => PROVIDER_IDS.includes(id));
   if (merged.lyrics.enabled.length === 0) merged.lyrics.enabled = ['lrclib'];
+  if (!LYRICS_SORT_MODES.includes(merged.lyrics.sortBy)) merged.lyrics.sortBy = 'title';
+  merged.app.language = normaliseLanguage(merged.app.language);
   return merged;
 }
 
@@ -421,6 +472,8 @@ export function applyPatch(cfg, patch) {
   merged.lyrics.enabled = (Array.isArray(merged.lyrics.enabled) ? merged.lyrics.enabled : PROVIDER_IDS)
     .filter((id) => PROVIDER_IDS.includes(id));
   if (merged.lyrics.enabled.length === 0) merged.lyrics.enabled = ['lrclib'];
+  if (!LYRICS_SORT_MODES.includes(merged.lyrics.sortBy)) merged.lyrics.sortBy = 'title';
+  merged.app.language = normaliseLanguage(merged.app.language);
   return merged;
 }
 

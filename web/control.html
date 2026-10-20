@@ -196,6 +196,21 @@
 
       <div class="group">
         <div class="group-title"><span class="ico">≡</span>Search results for this track</div>
+        <div class="card">
+          <div class="row">
+            <div class="info">
+              <div class="t">Sort results by</div>
+              <div class="d">Only changes the order of this list. Scoring still decides which result is used.</div>
+            </div>
+            <div class="control">
+              <select id="resultsSort">
+                <option value="title">Title</option>
+                <option value="artist">Artist</option>
+                <option value="score">Score</option>
+              </select>
+            </div>
+          </div>
+        </div>
         <div class="card" id="resultsList"><div class="empty">Nothing playing yet.</div></div>
         <div class="hint">Use <em>Apply</em> to force a specific result. That choice is remembered for this track only.</div>
       </div>
@@ -307,6 +322,20 @@
           <div class="row">
             <div class="info"><div class="t">Translation</div><div class="d">The second line under the active lyric.</div></div>
             <div class="control"><input type="color" id="colorSub" /><input type="text" id="colorSubHex" style="width:100px" /></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title"><span class="ico">◑</span>Karaoke</div>
+        <div class="card">
+          <div class="row">
+            <div class="info"><div class="t">Karaoke fill</div><div class="d">The sung part of the active line sweeps into colour as the line is sung.</div></div>
+            <div class="control"><label class="switch"><input type="checkbox" id="karaoke" /><span class="track"></span></label></div>
+          </div>
+          <div class="row">
+            <div class="info"><div class="t">Sung colour</div><div class="d">What the filled part of the line turns. The rest stays in <em>Active line</em>.</div></div>
+            <div class="control"><input type="color" id="karaokeColor" /><input type="text" id="karaokeColorHex" style="width:100px" /></div>
           </div>
         </div>
       </div>
@@ -585,6 +614,25 @@
       <div class="callout" id="autostartCallout" hidden></div>
 
       <div class="group">
+        <div class="group-title"><span class="ico">⌘</span>Language</div>
+        <div class="card">
+          <div class="row">
+            <div class="info">
+              <div class="t">Interface language</div>
+              <div class="d">Applies to this panel and both overlays, so a translated panel does not leave an English overlay on stream.</div>
+            </div>
+            <div class="control">
+              <select id="language">
+                <option value="en">English</option>
+                <option value="zh-Hans">简体中文</option>
+                <option value="zh-Hant">繁體中文</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
         <div class="group-title"><span class="ico">▶</span>Startup</div>
         <div class="card">
           <div class="row">
@@ -700,7 +748,7 @@
         <div class="card">
           <div class="row"><div class="info">
             <div class="t mono">Windows SMTC → smtc-bridge → this app → OBS browser source</div>
-            <div class="d">Playback state and metadata are read from Windows through smtc-bridge's REST API, matched against four lyric providers, and pushed to the overlay over a local WebSocket.</div>
+            <div class="d">Playback state and metadata are read from Windows through the bundled SMTC bridge's REST API, matched against five lyric providers, and pushed to the overlay over a local WebSocket.</div>
           </div></div>
         </div>
       </div>
@@ -724,6 +772,7 @@
           <div class="row"><div class="info"><div class="t">NetEase Cloud Music</div><div class="d">Strong CJK catalogue, supplies original, translation and romanisation.</div></div></div>
           <div class="row"><div class="info"><div class="t">QQ Music</div><div class="d">Very broad CJK coverage; requires a Referer header, which this app sets server-side.</div></div></div>
           <div class="row"><div class="info"><div class="t">Kugou</div><div class="d">Used as a further CJK fallback. Searched by title only, then ranked by duration.</div></div></div>
+          <div class="row"><div class="info"><div class="t">Qishui Music</div><div class="d">TikTok/抖音 catalogue. Karaoke-timed lyrics, often with a translation attached.</div></div></div>
         </div>
       </div>
 
@@ -748,14 +797,20 @@
             <div class="d" id="updateStatus">Not checked yet.</div>
           </div>
             <div class="control">
-              <a class="btn small" id="updateDownload" href="#" target="_blank" rel="noreferrer" hidden>Download</a>
+              <button class="btn small" id="installUpdate" hidden>Install update</button>
+              <a class="btn small" id="updateDownload" href="#" target="_blank" rel="noreferrer" hidden>Download manually</a>
               <button class="btn small" id="checkUpdate">Check now</button>
             </div></div>
+          <div class="row" id="updateProgressRow" hidden><div class="info" style="flex:1">
+            <div class="t" id="updateProgressLabel">Downloading…</div>
+            <div class="progress-track" style="margin-top:10px"><div class="bar" id="updateProgressBar"></div></div>
+          </div></div>
           <div class="row"><div class="info">
             <div class="t">Release notes</div>
             <div class="d mono" id="updateNotes" style="white-space:pre-wrap;max-height:180px;overflow:auto">—</div>
           </div></div>
         </div>
+        <div class="hint">Installing downloads the release, replaces the program files and restarts Chorus. Your settings, lyric cache and history in <span class="mono">data</span> are never touched.</div>
       </div>
     </section>
   </main>
@@ -767,6 +822,8 @@
 /* ------------------------------------------------------------------ *
  * Control panel. Talks to the engine over /ws and the JSON API.
  * ------------------------------------------------------------------ */
+
+import { setLanguage, normaliseLanguage } from '/js/i18n.js';
 
 const $ = (id) => document.getElementById(id);
 let state = null;
@@ -839,7 +896,7 @@ function showPage(name) {
 
   // Opening About is the natural moment to check for a newer release. The server caches
   // the answer, so this does not hit GitHub on every visit.
-  if (name === 'about') refreshUpdate();
+  if (name === 'about') refreshUpdate('fresh');
 }
 for (const btn of navButtons) btn.addEventListener('click', () => showPage(btn.dataset.page));
 if (location.hash) showPage(location.hash.slice(1));
@@ -897,6 +954,7 @@ const PROVIDER_NOTES = {
   netease: 'Best for CJK tracks; also returns translations.',
   qq: 'Very broad CJK coverage, occasionally has translations.',
   kugou: 'Fallback for CJK. Searched by title, then matched on duration.',
+  qishui: 'TikTok/抖音 catalogue. Karaoke-timed, and often carries translations.',
 };
 
 function renderProviderSelects() {
@@ -960,6 +1018,9 @@ function buildPatch(path, value) {
 function setControlsFromConfig() {
   if (!config) return;
   const o = config.overlay;
+  // Language first: repainting before the controls are populated means the
+  // labels and the values land in the same pass instead of flickering twice.
+  $('language').value = normaliseLanguage(config.app?.language);
   $('primaryPlatform').value = config.source.primaryPlatform;
   $('smtcUrl').value = config.smtc.url;
   $('pollInterval').value = config.smtc.pollIntervalMs;
@@ -972,6 +1033,7 @@ function setControlsFromConfig() {
   $('durationTolerance').value = config.lyrics.durationToleranceMs;
   $('durationToleranceVal').textContent = `${config.lyrics.durationToleranceMs / 1000} s`;
   $('preferredProvider').value = config.lyrics.preferredProvider;
+  $('resultsSort').value = SORT_MODES.includes(config.lyrics.sortBy) ? config.lyrics.sortBy : 'title';
   $('fallbackEnabled').checked = Boolean(config.lyrics.fallback?.enabled);
   $('fallbackMinScore').value = config.lyrics.fallback?.minScore ?? 85;
   $('fallbackMinScoreVal').textContent = config.lyrics.fallback?.minScore ?? 85;
@@ -997,6 +1059,9 @@ function setControlsFromConfig() {
   $('colorMainHex').value = o.colorMain;
   $('colorSub').value = o.colorSub;
   $('colorSubHex').value = o.colorSub;
+  $('karaoke').checked = Boolean(o.karaoke);
+  $('karaokeColor').value = o.karaokeColor;
+  $('karaokeColorHex').value = o.karaokeColor;
 
   $('alignment').value = o.alignment;
   $('showTranslation').checked = Boolean(o.showTranslation);
@@ -1035,6 +1100,14 @@ function setControlsFromConfig() {
 }
 
 function wireControls() {
+  /*
+     The language row is wired first, because switching it repaints the page: the
+     toast that confirms the save is itself the fastest proof the change applied.
+  */
+  $('language').addEventListener('change', async (e) => {
+    setLanguage(e.target.value);
+    await saveConfig({ app: { language: e.target.value } });
+  });
   $('primaryPlatform').addEventListener('change', (e) => saveConfig({ source: { primaryPlatform: e.target.value } }, 'Primary platform updated'));
   $('smtcUrl').addEventListener('change', (e) => saveConfig({ smtc: { url: e.target.value.trim() } }, 'Address saved'));
   $('smtcTest').addEventListener('click', async () => {
@@ -1053,6 +1126,15 @@ function wireControls() {
   $('durationTolerance').addEventListener('input', (e) => { $('durationToleranceVal').textContent = `${Number(e.target.value) / 1000} s`; });
   $('durationTolerance').addEventListener('change', (e) => saveConfig({ lyrics: { durationToleranceMs: Number(e.target.value) } }));
   $('preferredProvider').addEventListener('change', (e) => saveConfig({ lyrics: { preferredProvider: e.target.value } }));
+
+  // Result ordering is a display preference: save it, then re-render the list from
+  // the snapshot already in hand so the change is visible without waiting for the
+  // next poll.
+  $('resultsSort').addEventListener('change', async (e) => {
+    const sortBy = e.target.value;
+    await saveConfig({ lyrics: { sortBy } }, `Results sorted by ${sortBy}`);
+    if (state) renderResults(state);
+  });
 
   // Fallback when the main source has no lyrics.
   $('fallbackEnabled').addEventListener('change', (e) => {
@@ -1081,7 +1163,7 @@ function wireControls() {
   });
 
   // Colour pickers and their hex fields stay in sync both ways.
-  for (const [picker, hex, key] of [['colorActive', 'colorActiveHex', 'colorActive'], ['colorMain', 'colorMainHex', 'colorMain'], ['colorSub', 'colorSubHex', 'colorSub']]) {
+  for (const [picker, hex, key] of [['colorActive', 'colorActiveHex', 'colorActive'], ['colorMain', 'colorMainHex', 'colorMain'], ['colorSub', 'colorSubHex', 'colorSub'], ['karaokeColor', 'karaokeColorHex', 'karaokeColor']]) {
     $(picker).addEventListener('change', (e) => {
       $(hex).value = e.target.value;
       saveConfig(buildPatch(`overlay.${key}`, e.target.value));
@@ -1098,6 +1180,7 @@ function wireControls() {
   bindCheckbox('showTranslation', 'overlay.showTranslation');
   bindCheckbox('translationAsMain', 'overlay.translationAsMain');
   bindCheckbox('showPlaceholder', 'overlay.showPlaceholder');
+  bindCheckbox('karaoke', 'overlay.karaoke');
   bindCheckbox('hideOnPause', 'overlay.hideOnPause');
   bindCheckbox('hideWhenNoLyrics', 'overlay.hideWhenNoLyrics');
 
@@ -1211,7 +1294,8 @@ function wireControls() {
     } catch (err) { toast(err.message, true); }
   });
   $('copyConfigPath').addEventListener('click', () => copy($('aboutDataDir').textContent, 'Path copied'));
-$('checkUpdate').addEventListener('click', () => refreshUpdate(true));
+$('checkUpdate').addEventListener('click', () => refreshUpdate('force'));
+$('installUpdate').addEventListener('click', () => installUpdateNow());
 
   wireApplicationPage();
 }
@@ -1271,24 +1355,34 @@ async function refreshAutostart() {
 /**
  * Update check against GitHub Releases.
  *
- * Only reports: nothing is downloaded or installed by the panel. The result is cached
- * server-side for a few hours, so "Check now" forces a fresh request while simply
- * opening this page does not.
+ * Reports whether a newer release exists and, when one does, offers to install it. The
+ * result is cached server-side for half an hour, so "Check now" forces a fresh request
+ * while opening the panel reuses the recent answer.
  */
-async function refreshUpdate(force = false) {
+/**
+ * Read the release state from the server.
+ *
+ * @param {false|'fresh'|'force'} mode `force` re-asks GitHub outright (the "Check now"
+ *   button); `fresh` accepts an answer up to a minute old, which is what opening the
+ *   panel asks for so reloading it does not hammer the GitHub API.
+ */
+async function refreshUpdate(mode = false) {
   const chip = $('updateVersion');
   const status = $('updateStatus');
   const callout = $('updateCallout');
   const download = $('updateDownload');
+  const install = $('installUpdate');
   const button = $('checkUpdate');
 
   button.disabled = true;
   status.textContent = 'Checking GitHub…';
   callout.hidden = true;
   download.hidden = true;
+  install.hidden = true;
 
   try {
-    const info = await api(`/api/update${force ? '?force=1' : ''}`);
+    const query = mode === 'force' ? '?force=1' : mode === 'fresh' ? '?fresh=1' : '';
+    const info = await api(`/api/update${query}`);
     chip.textContent = info.current ?? '—';
     chip.className = 'chip';
 
@@ -1319,6 +1413,10 @@ async function refreshUpdate(force = false) {
       download.href = info.downloadUrl;
       download.hidden = false;
     }
+    // The in-app installer needs an asset it knows how to apply.
+    if ((info.assets ?? []).some((a) => /(-portable\.zip|setup\.exe)$/i.test(a.name))) {
+      install.hidden = false;
+    }
 
     $('updateNotes').textContent = info.notes?.trim() || 'No release notes were provided.';
   } catch (err) {
@@ -1328,6 +1426,84 @@ async function refreshUpdate(force = false) {
     callout.innerHTML = `<span class="ico">✕</span><div>${escapeHtml(err.message)}</div>`;
   } finally {
     button.disabled = false;
+  }
+}
+
+/**
+ * Download and install the newer release.
+ *
+ * The server does the download (it has the network access and knows where its own
+ * files live) and reports progress through /api/update/progress. When it responds
+ * with `ok`, the swap is already staged and Chorus restarts itself, so this function
+ * deliberately does not try to keep the page alive afterwards.
+ */
+async function installUpdateNow() {
+  const label = $('updateProgressLabel');
+  const bar = $('updateProgressBar');
+  const row = $('updateProgressRow');
+  const button = $('installUpdate');
+  const status = $('updateStatus');
+
+  button.disabled = true;
+  row.hidden = false;
+  bar.style.width = '0%';
+  label.textContent = 'Checking for the newest release…';
+  status.textContent = 'Downloading…';
+
+  // Poll while the POST is in flight: the download can take minutes and the panel
+  // should show that something is happening.
+  let polling = true;
+  const poll = setInterval(async () => {
+    if (!polling) return;
+    try {
+      const p = await api('/api/update/progress');
+      if (p.state === 'downloading') {
+        const percent = p.total ? Math.min(100, Math.round((p.received / p.total) * 100)) : 0;
+        bar.style.width = `${percent}%`;
+        const mb = (bytes) => (bytes / 1048576).toFixed(1);
+        label.textContent = p.total
+          ? `Downloading ${p.version ?? ''} — ${mb(p.received)} of ${mb(p.total)} MB (${percent}%)`
+          : `Downloading ${p.version ?? ''} — ${mb(p.received)} MB`;
+      } else if (p.state === 'extracting') {
+        bar.style.width = '100%';
+        label.textContent = 'Unpacking…';
+      } else if (p.state === 'backing-up') {
+        label.textContent = 'Backing up your settings and cache…';
+      } else if (p.state === 'checking') {
+        label.textContent = 'Checking for the newest release…';
+      }
+    } catch {
+      /* a dropped poll is not worth reporting */
+    }
+  }, 500);
+
+  try {
+    const result = await api('/api/update/apply', { method: 'POST' });
+    polling = false;
+    clearInterval(poll);
+
+    if (!result.ok) {
+      row.hidden = true;
+      status.textContent = 'Update could not be installed.';
+      const callout = $('updateCallout');
+      callout.hidden = false;
+      callout.className = 'callout error';
+      callout.innerHTML = `<span class="ico">✕</span><div><strong>Update failed.</strong> ${escapeHtml(result.error ?? 'unknown error')}</div>`;
+      button.disabled = false;
+      return;
+    }
+
+    bar.style.width = '100%';
+    label.textContent = result.mode === 'installer'
+      ? 'Running the installer — approve the Windows prompt.'
+      : 'Installing — Chorus will restart in a moment.';
+    status.textContent = result.message ?? 'Installing…';
+  } catch (err) {
+    polling = false;
+    clearInterval(poll);
+    row.hidden = true;
+    button.disabled = false;
+    toast(err.message, true);
   }
 }
 
@@ -1442,6 +1618,8 @@ const DEFAULTS_FOR_RESET = {
   colorMain: '#ffffff',
   colorSub: '#e0e0e0',
   colorActive: '#ffffff',
+  karaoke: false,
+  karaokeColor: '#4cc2ff',
   shadow: 3,
   uppercase: false,
   showPlaceholder: true,
@@ -1612,6 +1790,41 @@ function escapeHtml(text) {
  * score and the one in use is marked "Using". Every other row offers Apply, which
  * overrides the automatic pick and is remembered for that track.
  */
+/** Ordering options for the candidate list; `title` is the default. */
+const SORT_MODES = ['title', 'artist', 'score'];
+/**
+ * Locale-aware comparison so CJK titles sort by pinyin/kana reading instead of
+ * by code point, and track numbers in titles sort 2 before 10.
+ */
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+/**
+ * Order the candidate list for display.
+ *
+ * Ordering is only a preference: which candidate is actually used is decided
+ * server-side by score, so the in-use row keeps its real position rather than being
+ * promoted to the top. Score descending is the tiebreak in every mode, so equally
+ * named results still read sensibly.
+ *
+ * @param {Array<object>} rows candidates, possibly with an `inUse` flag
+ * @param {string} sortBy one of SORT_MODES
+ * @returns {Array<object>} a new array
+ */
+function orderResults(rows, sortBy) {
+  const byScore = (a, b) => Number(b.score ?? 0) - Number(a.score ?? 0);
+  const copy = rows.slice();
+  if (sortBy === 'artist') {
+    copy.sort((a, b) => collator.compare(a.artist ?? '', b.artist ?? '')
+      || collator.compare(a.title ?? '', b.title ?? '')
+      || byScore(a, b));
+  } else if (sortBy === 'score') {
+    copy.sort(byScore);
+  } else {
+    copy.sort((a, b) => collator.compare(a.title ?? '', b.title ?? '') || byScore(a, b));
+  }
+  return copy;
+}
+
 function renderResults(next) {
   const container = $('resultsList');
   const lyrics = next.lyrics ?? {};
@@ -1623,19 +1836,22 @@ function renderResults(next) {
     return;
   }
 
-  // Order strictly by score so the list reads as a ranking; the in-use entry is
-  // marked rather than promoted to the top, so its position shows its real rank.
-  const rows = [];
-  if (current) rows.push({ ...current, inUse: true });
-  for (const alt of alternatives) rows.push(alt);
-  rows.sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0));
+  const sortBy = SORT_MODES.includes(config?.lyrics?.sortBy) ? config.lyrics.sortBy : 'title';
+  const unsorted = [];
+  if (current) unsorted.push({ ...current, inUse: true });
+  for (const alt of alternatives) unsorted.push(alt);
 
-  const topScore = rows.length ? Number(rows[0].score ?? 0) : 0;
+  const rows = orderResults(unsorted, sortBy);
+
+  // The best score is not necessarily the first row once the list is sorted by
+  // name, so take the maximum rather than reading the top row.
+  const topScore = rows.reduce((best, row) => Math.max(best, Number(row.score ?? 0)), 0);
+  const orderNote = { title: 'Sorted by title', artist: 'Sorted by artist', score: 'Sorted by score' }[sortBy];
 
   container.innerHTML = `
     <div class="row" style="border-bottom:1px solid var(--divider)">
       <div class="info">
-        <div class="d">Highest score wins automatically — the top result is ${topScore ? topScore.toFixed(0) : '–'}${
+        <div class="d">${orderNote}. The highest score wins automatically — the best result is ${topScore ? topScore.toFixed(0) : '–'}${
           current ? `, and ${lyrics.manual ? 'a manual choice is' : `${escapeHtml(current.providerLabel ?? current.provider)} is`} in use` : ''
         }. Use <strong>Apply</strong> on any row to override it.</div>
       </div>
@@ -1827,6 +2043,7 @@ async function boot() {
   providersMeta = meta.providers;
   platformsMeta = meta.platforms;
   config = await api('/api/config');
+  setLanguage(config.app?.language ?? 'en');
   if (config.overlay.idleOpacity !== undefined) overlaysIdleOpacity = config.overlay.idleOpacity;
 
   renderProviders();
@@ -1845,6 +2062,11 @@ async function boot() {
 
   // The overlay link must follow whichever host the panel was opened on.
   setInterval(updateOverlayUrl, 5000);
+
+  // Check for a newer release every time the panel is opened, so a published update
+  // shows up without hunting for a button. 'fresh' accepts a server answer up to a
+  // minute old, so reloading the panel does not spend a GitHub request each time.
+  refreshUpdate('fresh');
 }
 
 boot().catch((err) => {

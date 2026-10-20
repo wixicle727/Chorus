@@ -481,5 +481,151 @@ const kugou = {
   },
 };
 
-export const PROVIDERS = [lrclib, netease, qq, kugou];
+/* ------------------------------------------------------------------ *
+ * Qishui Music (汽水音乐)
+ *   search: api.qishui.com/luna/search/track?q=&device_platform=web
+ *   lyric:  api.qishui.com/luna/h5/seo_track?track_id=&device_platform=web
+ *
+ * The lyric field is NOT LRC. It is Qishui's own karaoke format, one line per
+ * lyric line:
+ *
+ *   [15278,3319]<0,403,0>雨<560,403,0>下<1120,403,0>了
+ *
+ * i.e. `[line start ms, line duration ms]` followed by word tokens of
+ * `<offset ms within the line, word duration, flag>text`. Word timing is
+ * discarded here — the overlay works per line — but the line stamps are exact,
+ * so no estimation is needed.
+ *
+ * Translations arrive separately under `lyric.translations`, keyed by language
+ * (`cn`, sometimes others), and are already plain LRC.
+ * ------------------------------------------------------------------ */
+
+/** Qishui timestamps lyric lines in milliseconds; LRC wants centiseconds. */
+function lrcStamp(ms) {
+  const total = Math.max(0, Math.round(Number(ms) || 0));
+  const minutes = Math.floor(total / 60000);
+  const seconds = Math.floor((total % 60000) / 1000);
+  const centis = Math.floor((total % 1000) / 10);
+  return `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(centis).padStart(2, '0')}]`;
+}
+
+/**
+ * Convert one of Qishui's karaoke lyric documents into standard LRC.
+ *
+ * Lines without a leading `[start,duration]` are dropped: without a stamp they
+ * would have to be estimated, and mixing timed and untimed lines in one document
+ * makes the overlay jump around.
+ *
+ * @param {string} content raw `lyric.content`
+ * @returns {string} LRC text, empty when the document carried no timed lines
+ */
+export function qishuiRichToLrc(content) {
+  const out = [];
+  for (const rawLine of String(content ?? '').split(/\r?\n/)) {
+    const match = rawLine.match(/^\[(\d+),\d+\](.*)$/);
+    if (!match) continue;
+    const text = match[2]
+      // Word tokens: `<offset,duration,flag>` — the flag carries no text.
+      .replace(/<[^>]*>/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!text) continue;
+    out.push(`${lrcStamp(Number(match[1]))}${text}`);
+  }
+  return out.length ? `${out.join('\n')}\n` : '';
+}
+
+/** Pull the newest-looking translation out of `lyric.translations`. */
+function qishuiTranslation(translations) {
+  if (!translations || typeof translations !== 'object') return null;
+  // `cn` is the usual key; fall back to any string value that looks like LRC.
+  for (const key of ['cn', 'zh', 'translation']) {
+    const value = translations[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  for (const value of Object.values(translations)) {
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return null;
+}
+
+const qishui = {
+  id: 'qishui',
+  label: 'Qishui Music',
+  headers: {
+    // The web client's UA is enough for both endpoints; no cookie or signature
+    // is needed for search or lyrics (the PC endpoints do require one).
+    'User-Agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
+  },
+
+  async search(track, settings) {
+    const timeoutMs = settings.searchTimeoutMs;
+    const queries = buildSearchQueries(track, { limit: 4 });
+
+    const seen = new Set();
+    const results = [];
+    for (const query of queries.slice(0, 2)) {
+      let payload;
+      try {
+        payload = await getJson(
+          withQuery('https://api.qishui.com/luna/search/track', {
+            q: query,
+            device_platform: 'web',
+            cursor: 0,
+            count: 12,
+          }),
+          { headers: this.headers, timeoutMs },
+        );
+      } catch {
+        continue;
+      }
+      const group = Array.isArray(payload?.result_groups)
+        ? payload.result_groups.find((g) => g?.id === 'tracks')
+        : null;
+      const items = Array.isArray(group?.data) ? group.data : [];
+      for (const item of items) {
+        // Tracks normally sit under entity.track_wrapper.track, but videos and a
+        // few item kinds put the object one level up.
+        const song = item?.entity?.track_wrapper?.track ?? item?.entity?.track ?? null;
+        if (!song?.id) continue;
+        const key = String(song.id);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        results.push({
+          key,
+          title: String(song.name ?? ''),
+          artist: Array.isArray(song.artists)
+            ? song.artists.map((a) => a?.name).filter(Boolean).join(' / ')
+            : '',
+          album: String(song.album?.name ?? ''),
+          durationMs: Number(song.duration) || 0, // already milliseconds
+        });
+      }
+      if (results.length > 0) break;
+    }
+    return results;
+  },
+
+  async fetchLyrics(candidate) {
+    const payload = await getJson(
+      withQuery('https://api.qishui.com/luna/h5/seo_track', {
+        track_id: candidate.key,
+        device_platform: 'web',
+      }),
+      { headers: this.headers },
+    );
+    const lyric = payload?.lyric ?? {};
+    const rawLyric = qishuiRichToLrc(lyric.content ?? '');
+    return {
+      rawLyric,
+      rawTranslation: qishuiTranslation(lyric.translations),
+      format: 'lrc',
+      // `hide_request_lyrics` marks tracks whose rights holder hid the lyrics.
+      pureMusic: !rawLyric && Boolean(lyric.hide_request_lyrics),
+    };
+  },
+};
+
+export const PROVIDERS = [lrclib, netease, qq, kugou, qishui];
 export default PROVIDERS;

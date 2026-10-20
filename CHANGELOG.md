@@ -5,6 +5,60 @@ All notable changes to Chorus are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.4.0] — 2026-10-20
+
+### Added
+
+- **Karaoke fill.** Style → *Karaoke*. The part of the active line that has already
+  been sung is painted in its own colour and the rest stays in the active colour, so the
+  line fills left to right as it is sung. The sweep is driven by the same clock as the
+  lyric timing, so it stops when playback is paused, follows the global offset, and never
+  runs past the next line's start. Off by default; *Sung colour* picks the fill colour
+  (default `#4cc2ff`).
+
+- **Qishui Music as a fifth lyric source.** Karaoke-timed lyrics with an optional
+  translation, which covers tracks that only Qishui's catalogue carries. Enabled alongside
+  the other four sources; the best-scoring result still wins.
+
+- **Result ordering.** Lyrics → *Search results for this track* → *Sort results by*. Lists
+  the candidates by title, artist or score. Ordering only changes the list — scoring still
+  decides which result is used.
+
+- **Updates from inside the app.** Application → *Updates* → *Install update* downloads the
+  new release, replaces the program files and restarts Chorus. Your settings, lyric cache
+  and history are copied to `backup\<version>-<timestamp>\` first and are never overwritten;
+  roll-back instructions sit in `RESTORE.txt` beside the copy. Installs under
+  `Program Files` hand over to the installer instead, because those files are not writable
+  without elevation.
+
+- **English, Simplified Chinese and Traditional Chinese.** Application → *Language* switches
+  the control panel and both overlays together, so a translated panel never leaves an
+  English overlay on stream. Every string in the panel and the lyric overlay is translated,
+  and the README ships in all three languages, linked from the switcher at the top.
+
+### Changed
+
+- The update check now runs every time the control panel opens, not only when you press
+  *Check now*. Results are cached for 30 minutes, well inside GitHub's unauthenticated
+  rate limit.
+
+### Fixed
+
+- **The karaoke fill was cut off flat at the baseline.** The sung part of a line is a second
+  copy of the text revealed by a CSS mask, and a mask only paints inside the element's box.
+  Glyphs are taller than their line box, so every descender — p, g, y, j, q — lost its tail
+  and showed a sliver of the unsung copy underneath.
+
+- **The karaoke fill stayed on screen while paused.** It was hidden with `visibility`, which
+  an element can override on itself, so *Hide text while paused* blanked every line but the
+  blue copy. It now hides with `opacity`, which no descendant can undo.
+
+- **The sung half of a line looked smudged.** The fill copy carried its own drop shadow on
+  top of the base copy's, darkening the overlap. It no longer has one; the base's shadow
+  already surrounds the blue glyphs, exactly as it surrounds white ones.
+
 ## [1.3.0] — 2026-10-20
 
 ### Added
@@ -309,7 +363,8 @@ First release.
 - Lyrics are fetched from public endpoints using only the track title and artist.
   No account, no API key, no telemetry.
 
-[Unreleased]: https://github.com/wixicle727/Chorus/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/wixicle727/Chorus/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/wixicle727/Chorus/releases/tag/v1.4.0
 [1.3.0]: https://github.com/wixicle727/Chorus/releases/tag/v1.3.0
 [1.2.0]: https://github.com/wixicle727/Chorus/releases/tag/v1.2.0
 [1.1.0]: https://github.com/wixicle727/Chorus/releases/tag/v1.1.0

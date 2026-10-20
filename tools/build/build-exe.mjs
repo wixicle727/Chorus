@@ -204,6 +204,12 @@ const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppDat
  */
 const appName = 'Chorus';
 const candidates = [
+  // An explicit override wins, so a profile that denies both of the usual locations
+  // still has a way through — and it is how the build is smoke-tested on a locked-down
+  // account. Absolute only: a relative path would resolve against an unpredictable cwd.
+  ...(process.env.CHORUS_HOME && path.isAbsolute(process.env.CHORUS_HOME)
+    ? [process.env.CHORUS_HOME]
+    : []),
   path.join(localAppData, appName, 'embedded', version),
   path.join(process.env.TEMP || os.tmpdir(), appName + '-embedded', version),
   path.join(os.tmpdir(), appName + '-embedded', version),
@@ -467,12 +473,26 @@ function assemble(exePath) {
   fs.rmSync(OUT_DIR, { recursive: true, force: true });
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
+  /*
+     A previous smoke test can leave its data folder (settings, lyric cache, the
+     log) inside the release folder. Shipping someone's listening history in a
+     zip would be embarrassing, so anything the runtime writes is removed here as
+     well as in the workflow, because local builds make the same zip.
+  */
+  for (const leftover of ['data', 'smoke.log', '.npm-cache']) {
+    const target = path.join(OUT_DIR, leftover);
+    if (fs.existsSync(target)) {
+      fs.rmSync(target, { recursive: true, force: true });
+      log(`removed stale ${leftover} from the release folder`);
+    }
+  }
+
   fs.copyFileSync(exePath, path.join(OUT_DIR, EXE_NAME));
   log(`staged ${EXE_NAME}`);
 
   // The executable is self-contained: the front-end, the images and the SMTC
   // bridge's scripts are all embedded. Only human-facing files ship beside it.
-  for (const file of ['README.md', 'README.zh-CN.md', 'CHANGELOG.md', 'LICENSE']) {
+  for (const file of ['README.md', 'README.zh-CN.md', 'README.zh-TW.md', 'CHANGELOG.md', 'LICENSE']) {
     const from = path.join(ROOT, file);
     if (fs.existsSync(from)) {
       fs.copyFileSync(from, path.join(OUT_DIR, file));
