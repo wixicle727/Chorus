@@ -9,7 +9,7 @@
  */
 
 import { BridgeClient, selectSession, isPlaying, PlaybackStatus } from './bridge.js';
-import { activeIndexAt, buildLyricDoc, mergeLyrics } from './lrc.js';
+import { activeIndexAt, buildLyricDoc, dropTitleHeader, mergeLyrics } from './lrc.js';
 import { createRegistry, resolveLyrics, providerLabel } from './match.js';
 import { PROVIDERS } from '../providers/index.js';
 import { clamp } from './utils.js';
@@ -291,7 +291,7 @@ export class Engine extends EventEmitterLike {
 
       if (result.status === 'matched' && result.candidate) {
         const lines = buildLyricDoc(
-          mergeLyrics(result.candidate.rawLyric, result.candidate.rawTranslation),
+          dropTitleHeader(mergeLyrics(result.candidate.rawLyric, result.candidate.rawTranslation), track),
           track.durationMs,
         );
         const hasTranslation = lines.some((l) => l.translation);
@@ -418,6 +418,26 @@ export class Engine extends EventEmitterLike {
     return { ok: true };
   }
 
+  /**
+   * Re-read the player now and push whatever it says.
+   *
+   * The poll loop runs on a fixed interval, so when a player wedges, the bridge restarts or
+   * a pause is missed the panel can sit on a stale track until the next tick — or, if the
+   * timer was stopped, indefinitely. This forces one poll immediately and re-broadcasts the
+   * whole state, which is what the panel's "Refresh status" button needs to be a real fix
+   * rather than a placebo.
+   */
+  async resync() {
+    await this.tick();
+    this.emitState({ reason: 'resync', full: true });
+    const { track, lyricStatus } = this.state;
+    return {
+      ok: true,
+      track: track ? `${track.title} — ${track.artist}` : null,
+      status: lyricStatus,
+    };
+  }
+
   /** Manually attach a specific candidate's lyrics to the current track. */
   async applyCandidate(candidate, { remember = true } = {}) {
     const { track } = this.state;
@@ -426,7 +446,7 @@ export class Engine extends EventEmitterLike {
     if (!provider) return { ok: false, error: `unknown provider ${candidate.provider}` };
     try {
       const body = await provider.fetchLyrics(candidate, track, this.config.lyrics);
-      const lines = buildLyricDoc(mergeLyrics(body.rawLyric, body.rawTranslation), track.durationMs);
+      const lines = buildLyricDoc(dropTitleHeader(mergeLyrics(body.rawLyric, body.rawTranslation), track), track.durationMs);
       if (lines.length === 0) return { ok: false, error: 'that result has no lyrics' };
       const payload = {
         status: 'matched',
@@ -727,3 +747,4 @@ EventEmitterLike.prototype.emit = function emit(event, payload) {
 };
 
 export { PlaybackStatus };
+

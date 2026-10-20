@@ -62,8 +62,23 @@ jobs:
         run: node test/engine.js
 
       # No browser needed: the page modules are imported directly in Node.
-      - name: Overlay and page logic tests
-        run: node test/nowplaying.js && node test/control.js && node test/karaoke.js && node test/i18n.js && node test/updater.js
+      #
+      # One step per suite, so a failure names the suite in the run's step list
+      # instead of surfacing as a bare exit code from a chained command.
+      - name: Page logic - now-playing card
+        run: node test/nowplaying.js
+
+      - name: Page logic - result ordering
+        run: node test/control.js
+
+      - name: Page logic - karaoke fill
+        run: node test/karaoke.js
+
+      - name: Page logic - translations
+        run: node test/i18n.js
+
+      - name: Updater staging and swap
+        run: node test/updater.js
 
       # The server is started and tested inside ONE step on purpose. GitHub Actions
       # reaps a step's process tree when the step ends, so a server launched in an

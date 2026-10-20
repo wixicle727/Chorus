@@ -64,11 +64,13 @@ section('Title order (the default)');
 {
   const rows = [{ title: 'Lemon' }, { title: 'Again' }, { title: '晴天' }];
   const sorted = orderResults(rows, 'title');
-  // Where a Kana/Kanji title lands depends on the machine's collator locale (this
-  // machine puts CJK first), so only the Latin order is pinned here.
-  check('sorts Latin titles alphabetically', titles(sorted).replace('晴天,', '') === 'Again,Lemon',
-    titles(sorted));
+  // A Kana/Kanji title lands at whichever end the platform collator puts it — first on a
+  // zh-HK machine, last on the en-US runner that CI uses. Pin the Latin order and treat
+  // the CJK title as "somewhere, intact", so the test does not depend on the locale.
+  const latinOnly = titles(sorted).split(',').filter((title) => title !== '晴天').join(',');
+  check('sorts Latin titles alphabetically', latinOnly === 'Again,Lemon', titles(sorted));
   check('keeps a title it cannot compare', sorted.length === 3);
+  check('keeps every row exactly once', new Set(sorted.map((row) => row.title)).size === 3);
   check('is locale-aware, not code-point order', titles(rows) !== titles(sorted));
   check('the collator is the platform one', /new Intl\.Collator\(undefined,/.test(collatorLine[0]));
 

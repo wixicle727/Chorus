@@ -186,6 +186,42 @@ export function mergeLyrics(originalText, translationText = null) {
 }
 
 /**
+ * Drop a leading "Title - Artist" line.
+ *
+ * QQ Music stamps the track name as the first lyric line (`[00:00.00]Bloomy＊スマイル -
+ * 舞桜/るり/響子/栞`), and ripped LRC files often do the same. Rendered as-is it sits on the
+ * overlay for the whole intro as if it were the opening lyric. Only the very first line is
+ * considered, only if it starts at the top of the track, and only when what follows the
+ * title is empty or names the artist — a genuine first lyric that happens to repeat the
+ * title is left alone unless it matches that shape.
+ *
+ * @param {Array<{timeMs:number,text:string}>} lines
+ * @param {{title?:string, artist?:string}} track
+ */
+export function dropTitleHeader(lines, track) {
+  if (!Array.isArray(lines) || lines.length < 2 || !track?.title) return lines;
+  const [first] = lines;
+  if (!first || first.timeMs > 500) return lines;
+
+  // Comparing without spaces, punctuation or the separators both sides use differently:
+  // the player says "舞桜・るり・響子・栞 from STARRY PLANET☆", QQ says "舞桜/るり/響子/栞".
+  const squash = (value) =>
+    String(value ?? '')
+      .toLowerCase()
+      .replace(/[\s\-–—・×*＊,，.。、/／&＆★☆!！?？'"“”()（）[\]]+/g, '');
+
+  const title = squash(track.title);
+  const text = squash(first.text);
+  if (!title || !text.startsWith(title)) return lines;
+
+  const rest = text.slice(title.length);
+  if (!rest) return lines.slice(1);
+  const artist = squash(track.artist);
+  if (artist && (rest === artist || artist.includes(rest) || rest.includes(artist))) return lines.slice(1);
+  return lines;
+}
+
+/**
  * Build a lyric object from a parsed line array: adds explicit end times so the
  * overlay can animate a line for exactly as long as it is on screen.
  */

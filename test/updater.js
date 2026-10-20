@@ -113,6 +113,10 @@ fs.copyFileSync(path.join(SOURCE, 'package.json'), path.join(install, 'package.j
 // Read before the swap: the mirror deletes `src/` (the release ships no source tree), so
 // anything needed afterwards has to be captured up front.
 const runningVersion = JSON.parse(fs.readFileSync(path.join(install, 'package.json'), 'utf8')).version;
+// The version is whatever package.json says — never a literal. Bumping the release
+// version once failed this suite purely because a hardcoded '1.4.0' went stale, which is
+// exactly the kind of failure a test should not have.
+const expectedVersion = JSON.parse(fs.readFileSync(path.join(SOURCE, 'package.json'), 'utf8')).version;
 fs.mkdirSync(path.join(install, 'data'), { recursive: true });
 fs.writeFileSync(path.join(install, 'data', 'config.json'), '{"server":{"port":6727}}');
 fs.writeFileSync(path.join(install, 'data', 'cache.json'), '{"tracks":{}}');
@@ -286,7 +290,7 @@ section('Refusing to update when there is nothing newer');
 {
   updater.resetUpdateProgress();
   update.clearUpdateCache();
-  check('the running version is the one in package.json', runningVersion === '1.4.0', runningVersion);
+  check('the running version is the one in package.json', runningVersion === expectedVersion, runningVersion);
 
   // Pretend this build is the newest thing on GitHub.
   const before = globalThis.fetch;

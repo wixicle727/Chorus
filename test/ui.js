@@ -502,6 +502,20 @@ section('Qishui and result ordering');
   ok('the panel refreshes the update check when it opens', /refreshUpdate\('fresh'\)/.test(control));
 }
 
+section('Refresh status button');
+{
+  const control = (await get('/control')).text;
+  ok('the Now playing page has a status refresh button', control.includes('id="resyncBtn"'));
+  ok('the button posts to /api/resync', /api\/resync/.test(control));
+  ok('the button is wired to a click handler', /\$\('resyncBtn'\)\.addEventListener\('click'/.test(control));
+
+  // It must be a real re-poll, not a second name for the lyric re-search.
+  const res = await fetch(`${BASE}/api/resync`, { method: 'POST', body: '{}' });
+  const body = await res.json();
+  ok('POST /api/resync answers', res.status === 200 && typeof body.ok === 'boolean', String(res.status));
+  ok('the answer names the track it found', body.ok === true && 'track' in body, JSON.stringify(body));
+}
+
 section('Interface language');
 {
   const control = (await get('/control')).text;

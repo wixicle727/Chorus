@@ -7,6 +7,31 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.4.1] — 2026-10-20
+
+### Added
+
+- **Refresh status.** Now playing → *⟳ Refresh status* re-reads the player immediately
+  instead of waiting for the next poll, so a track that changed between ticks (or a bridge
+  that was restarted) is picked up at once.
+
+### Fixed
+
+- **Some CJK tracks resolved to nothing while other players found lyrics.** Two causes:
+  QQ's search returns a placeholder `songmid` of `"0"` for aggregate ("best match") rows,
+  and that placeholder was used as the lyric key, so the lookup asked for a track that does
+  not exist. A placeholder key now counts as missing and the real `mid` is used.
+- **A length difference no longer rejects an exact match.** Providers often list a
+  different edit — album versus single, or stale metadata — so a song whose title matched
+  exactly and whose artist matched well was still thrown away for being 25 seconds longer
+  than the streaming copy. An exact title with a matching artist now gets a wider duration
+  window, while a genuinely different edit (a TV-size cut) is still rejected.
+
+### Changed
+
+- **A failure explains itself** in the cache and history pages, naming the sources that were
+  searched instead of leaving the row blank.
+
 ## [1.4.0] — 2026-10-20
 
 ### Added

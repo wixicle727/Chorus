@@ -337,6 +337,34 @@ section('A failed lookup still explains itself');
   );
 }
 
+section('Refresh status re-reads the player');
+
+{
+  /**
+   * The panel's "Refresh status" button exists because the engine can sit on a stale
+   * track: it polls on a timer, so a player that changes state between ticks — or a
+   * bridge that restarted — is not seen until the next one. resync() must poll first and
+   * only then push, otherwise the button would hand the same stale track back.
+   */
+  const before = { appId: 'Spotify.exe', platformName: 'Spotify', title: 'Resync Before', artist: 'A', album: '', durationMs: 200000 };
+  engine.state.track = before;
+
+  // Change what the player reports without giving the poll loop a chance to see it.
+  bridge.state.title = 'Resync After';
+  bridge.state.artist = 'B';
+
+  const result = await engine.resync();
+  check('resync reports success', result?.ok === true, JSON.stringify(result));
+  check('resync picks up the new track', String(result?.track ?? '').includes('Resync After'), String(result?.track));
+  check('resync leaves the engine on the new track', engine.state.track?.title === 'Resync After', String(engine.state.track?.title));
+
+  // With nothing playing it must say so rather than pretending to have refreshed.
+  bridge.state.title = '';
+  bridge.state.artist = '';
+  const idle = await engine.resync();
+  check('resync reports no track when nothing is playing', idle?.track === null, JSON.stringify(idle));
+}
+
 engine.stop();
 bridge.server.close();
 

@@ -50,8 +50,15 @@ export function buildSearchQueries(track, { limit = 4, includeArtistOnly = false
     if (text && !queries.includes(text)) queries.push(text);
   };
 
-  if (title && artist) push(`${title} ${artist}`);
+  // Title first, on its own.
+  //
+  // A player's artist field is often a credited list ("舞桜・るり・響子・栞 from STARRY
+  // PLANET☆"), and appending the whole thing makes providers answer with whatever contains
+  // a fragment of it: NetEase answers that query with "PLANET — ラムジ" and "Planet Matrix"
+  // and never returns the song. The title identifies the song, so it leads and the artist
+  // narrows afterwards.
   if (title) push(title);
+  if (title && artist) push(`${title} ${artist}`);
 
   // Individual credited artists, longest first: the most distinctive name is the most
   // likely to be the one the provider indexes under.
@@ -279,6 +286,23 @@ const netease = {
  *           Requires Referer: https://y.qq.com/, hence the server-side fetch.
  * ------------------------------------------------------------------ */
 
+/**
+ * The song id QQ's lyric endpoint needs, from either search shape.
+ *
+ * `search_for_qq_cp` names it `songmid`, the musicu response names it `mid`, and the h5
+ * endpoint signals "best guess, no real id" with the string `"0"` — which is truthy, so it
+ * must be rejected explicitly. Without that, a query the h5 endpoint is unsure about yields
+ * a candidate whose lyrics can never be fetched: the panel lists the right song and then
+ * shows nothing for it.
+ */
+export function qqSongKey(song) {
+  for (const value of [song?.songmid, song?.mid, song?.songMid]) {
+    const text = String(value ?? '').trim();
+    if (text && text !== '0') return text;
+  }
+  return '';
+}
+
 const qq = {
   id: 'qq',
   label: 'QQ Music',
@@ -306,7 +330,10 @@ const qq = {
       } catch {
         list = [];
       }
-      if (list.length === 0) {
+      // The h5 endpoint answers a query it is unsure about with a single synthetic
+      // entry whose `songmid` is the string "0" — no id, so its lyrics can never be
+      // fetched. Treat that as "no results" and ask musicu, which does carry the mid.
+      if (list.length > 0 && list.every((song) => !qqSongKey(song))) {
         try {
           list = await this.searchMusicu(query, timeoutMs);
         } catch {
@@ -315,13 +342,13 @@ const qq = {
       }
       for (const song of list) {
         // The two endpoints use different field names for the same values.
-        const key = String(song.songmid ?? song.mid ?? '');
+        const key = qqSongKey(song);
         if (!key || seen.has(key)) continue;
         seen.add(key);
         const singers = Array.isArray(song.singer) ? song.singer : [];
         results.push({
           key,
-          title: String(song.songname ?? song.title ?? ''),
+          title: String(song.songname ?? song.name ?? song.title ?? ''),
           artist: singers
             .map((s) => (typeof s === 'string' ? s : s?.name))
             .filter(Boolean)
@@ -629,3 +656,5 @@ const qishui = {
 
 export const PROVIDERS = [lrclib, netease, qq, kugou, qishui];
 export default PROVIDERS;
+
+

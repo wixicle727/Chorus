@@ -62,6 +62,7 @@
               <span class="time" id="posEnd">0:00</span>
             </div>
             <div class="transport">
+              <button class="btn small" id="resyncBtn" title="Re-read the player right now instead of waiting for the next poll">⟳ Refresh status</button>
               <button class="btn small" id="refreshBtn">↻ Re-resolve lyrics</button>
               <button class="btn small" id="offsetBack" title="Show lyrics 250 ms earlier">−0.25s</button>
               <span class="chip" id="offsetChip">offset 0 ms</span>
@@ -1230,6 +1231,15 @@ function wireControls() {
   for (const btn of document.querySelectorAll('[data-offset]')) {
     btn.addEventListener('click', () => nudgeOffset(Number(btn.dataset.offset)));
   }
+  $('resyncBtn').addEventListener('click', async () => {
+    $('resyncBtn').disabled = true;
+    try {
+      const result = await api('/api/resync', { method: 'POST', body: '{}' });
+      if (result?.ok === false) throw new Error(result.error ?? 'could not refresh');
+      toast(result?.track ? `Now: ${result.track}` : 'Nothing is playing');
+    } catch (err) { toast(err.message, true); }
+    finally { setTimeout(() => { $('resyncBtn').disabled = false; }, 600); }
+  });
   $('refreshBtn').addEventListener('click', async () => {
     $('refreshBtn').disabled = true;
     try { await api('/api/refresh', { method: 'POST', body: '{}' }); toast('Re-searching lyrics…'); }

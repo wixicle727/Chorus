@@ -1156,6 +1156,79 @@ async function testKaraokeConfig() {
 }
 
 /* ------------------------------------------------------------------ *
+ * Search order, duration tolerance and the QQ id
+ * ------------------------------------------------------------------ */
+
+async function testBloomyRegression() {
+  section('Title-first search and provider duration drift');
+
+  const { buildSearchQueries, qqSongKey } = await import('../src/providers/index.js');
+  const { isCandidateAcceptable, scoreCandidate } = await import('../src/core/match.js');
+
+  // The player reports a credited list; the title must not be buried behind it.
+  const track = {
+    title: 'Bloomy＊スマイル',
+    artist: '舞桜・るり・響子・栞 from STARRY PLANET☆',
+    album: '',
+    durationMs: 252579,
+  };
+  const queries = buildSearchQueries(track, { limit: 4 });
+  check('the plain title is searched first', queries[0] === 'Bloomy＊スマイル', queries[0]);
+  check('the full credit is the second query', queries[1] === 'Bloomy＊スマイル 舞桜・るり・響子・栞 from STARRY PLANET☆', queries[1]);
+  check('no query is empty', queries.every((q) => q.trim().length > 0), JSON.stringify(queries));
+
+  const settings = { durationToleranceMs: 8000, minScore: 40 };
+
+  // QQ lists it at 3:48 and NetEase at 3:45; the player says 4:12.
+  const exact = { title: 'Bloomy＊スマイル', artist: '舞桜 / るり / 響子 / 栞', durationMs: 228000, provider: 'qq' };
+  check(
+    'an exact title by the same artist survives a 25 second duration drift',
+    isCandidateAcceptable(exact, track, settings),
+    JSON.stringify(scoreCandidate(exact, track, settings).breakdown),
+  );
+
+  // The Short Size is a genuinely different edit and must stay out.
+  const shortSize = { title: 'Bloomy＊スマイル (Short Size)', artist: '舞桜 / るり / 響子 / 栞', durationMs: 127000, provider: 'qq' };
+  check('a TV-size edit is still rejected', isCandidateAcceptable(shortSize, track, settings) === false);
+
+  // A shorter, different song with a similar title ("Bloomy!") is not rejected outright —
+  // its title still clears the gate — but it must never outrank the exact match.
+  const otherSong = { title: 'Bloomy!', artist: '舞桜 / るり / 響子 / 栞', durationMs: 252579, provider: 'netease' };
+  check(
+    'a similar title at the same length ranks below the exact one',
+    scoreCandidate(otherSong, track, settings).total < scoreCandidate(exact, track, settings).total,
+    `${scoreCandidate(otherSong, track, settings).total} vs ${scoreCandidate(exact, track, settings).total}`,
+  );
+
+  // The wider window is only for an exact match: a loose title keeps the old gate.
+  const loose = { title: 'Bloomy', artist: '舞桜', durationMs: 228000, provider: 'qq' };
+  check('a loose title does not get the wider window', isCandidateAcceptable(loose, track, settings) === false);
+
+  // QQ answers a query it is unsure about with songmid "0", which is truthy but useless.
+  check('a real songmid is used as the id', qqSongKey({ songmid: '0024GGdm1J0pYx' }) === '0024GGdm1J0pYx');
+  check('songmid "0" is treated as missing and mid is used', qqSongKey({ songmid: '0', mid: '002QnBgB2lf53n' }) === '002QnBgB2lf53n');
+  check('the numeric musicu mid is used', qqSongKey({ mid: '0024qPPr1HW3gS' }) === '0024qPPr1HW3gS');
+  check('no id at all yields an empty string', qqSongKey({ songname: 'x' }) === '');
+
+  // QQ stamps the track name as the first lyric line.
+  const { dropTitleHeader } = await import('../src/core/lrc.js');
+  const withHeader = [
+    { timeMs: 0, text: 'Bloomy＊スマイル - 舞桜/るり/響子/栞' },
+    { timeMs: 16230, text: '笑顔見るたびに' },
+  ];
+  const cleaned = dropTitleHeader(withHeader, track);
+  check('a leading title line is dropped', cleaned.length === 1 && cleaned[0].text === '笑顔見るたびに');
+  check(
+    'a real first lyric that is not the title header survives',
+    dropTitleHeader([{ timeMs: 0, text: '夜明けの街' }, { timeMs: 4000, text: 'next' }], track).length === 2,
+  );
+  check(
+    'a title-shaped line late in the track is left alone',
+    dropTitleHeader([{ timeMs: 30000, text: 'Bloomy＊スマイル - 舞桜/るり/響子/栞' }, { timeMs: 35000, text: 'next' }], track).length === 2,
+  );
+}
+
+/* ------------------------------------------------------------------ *
  * Summary
  * ------------------------------------------------------------------ */
 
@@ -1165,6 +1238,7 @@ await testQishui();
 await testUpdater();
 await testLyricsSortMode();
 await testKaraokeConfig();
+await testBloomyRegression();
 
 console.log(`\n${'─'.repeat(58)}`);
 if (failed === 0) {

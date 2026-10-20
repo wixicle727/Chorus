@@ -101,7 +101,8 @@ export function scoreCandidate(candidate, track, settings = {}) {
 
   // Exact normalised titles should not be punished for extra "feat." text.
   let titleScore = diceSimilarity(wantedTitle, candTitle);
-  if (normalizeForMatch(wantedTitle) && normalizeForMatch(wantedTitle) === normalizeForMatch(candTitle)) {
+  const exactTitle = Boolean(normalizeForMatch(wantedTitle)) && normalizeForMatch(wantedTitle) === normalizeForMatch(candTitle);
+  if (exactTitle) {
     titleScore = 1;
   }
 
@@ -118,8 +119,16 @@ export function scoreCandidate(candidate, track, settings = {}) {
   const effectiveArtistWeight = candidate.artist ? weights.artist : weights.artist * 0.4;
   const effectiveTitleWeight = candidate.title ? weights.title : 0;
 
+  // An exact title is stronger evidence than a provider's duration, which is routinely
+  // wrong — QQ says 3:48 and NetEase 3:45 for a track the player reports as 4:12. Weighting
+  // the two equally lets a neighbouring song with the right length outrank the right song
+  // ("Bloomy!" scored 80.9 against 78.9 for the exact title), so the duration weight moves
+  // to the title when the title is exact.
+  const durationWeight = exactTitle ? weights.duration - 0.08 : weights.duration;
+  const titleWeight = exactTitle ? effectiveTitleWeight + 0.08 : effectiveTitleWeight;
+
   const total =
-    (titleScore * effectiveTitleWeight + artistScore * effectiveArtistWeight + durScore * weights.duration + preferenceScore * weights.preference) *
+    (titleScore * titleWeight + artistScore * effectiveArtistWeight + durScore * durationWeight + preferenceScore * weights.preference) *
     100;
 
   return {
@@ -187,11 +196,21 @@ export function isCandidateAcceptable(candidate, track, settings = {}) {
   const minScore = Number(settings.minScore ?? 40);
   if (!candidate?.title) return false;
   if (!track) return false;
+  const scored = scoredFor(candidate, track, settings);
   if (candidate.durationMs > 0 && track.durationMs > 0) {
-    const maxTolerance = Math.max(Number(settings.durationToleranceMs ?? 8000) * 2.5, 20000);
+    const base = Math.max(Number(settings.durationToleranceMs ?? 8000) * 2.5, 20000);
+    // An identical title by the same artist is the same recording even when a provider's
+    // duration disagrees, and providers are routinely wrong about it: QQ lists
+    // Bloomy＊スマイル at 3:48 and NetEase at 3:45 while the player reports 4:12. That 25
+    // second gap fails a fixed 20 second gate outright, so the song was never found at all.
+    // Widen to 18% of the longer duration for that case, which still refuses a genuinely
+    // different edit — the Short Size is 2:07 and the cover is 2:03.
+    const exactMatch = scored.breakdown.title >= 0.95 && scored.breakdown.artist >= 0.85;
+    const maxTolerance = exactMatch
+      ? Math.max(base, Math.round(Math.max(candidate.durationMs, track.durationMs) * 0.18))
+      : base;
     if (Math.abs(candidate.durationMs - track.durationMs) > maxTolerance) return false;
   }
-  const scored = scoredFor(candidate, track, settings);
   if (scored.total < minScore) return false;
   // The title gate comes first: a completely different title is never accepted,
   // however well the artist and duration line up.

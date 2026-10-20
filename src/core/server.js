@@ -20,6 +20,7 @@
  *   GET  /api/history           recent tracks
  *   DELETE /api/history         clear history
  *   POST /api/refresh           re-resolve the current track (bypass cache)
+ *   POST /api/resync            poll the player now and re-broadcast
  *   POST /api/candidate         apply a specific search candidate
  *   POST /api/manual            apply pasted LRC
  *   POST /api/offset            nudge the lyric offset
@@ -427,6 +428,19 @@ export function createServer({ engine, store, getConfig, setConfig, onShutdown =
       if (pathname === '/api/refresh' && method === 'POST') {
         const body = await readBody(req);
         const result = await engine.refresh(body?.settings ?? null);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      /**
+       * Re-read the player immediately and re-broadcast.
+       *
+       * Distinct from /api/refresh: that one re-searches lyrics for the track the engine
+       * already knows, so it does nothing when the engine's idea of the track is itself
+       * stale. This forces a poll first, which is what "Refresh status" means.
+       */
+      if (pathname === '/api/resync' && method === 'POST') {
+        const result = await engine.resync();
         sendJson(res, 200, result);
         return;
       }

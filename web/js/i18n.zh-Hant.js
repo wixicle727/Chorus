@@ -316,5 +316,7 @@ export default {
     "because this machine would not accept a registry entry. It works the same way.": "，因為這台機器不接受登錄檔項目。效果完全相同。",
     "Chorus will start hidden in the background the next time you sign in. Manage it from the tray icon.": "下次登入時 Chorus 會在背景隱藏啟動，可從系統匣圖示管理。",
     "Chorus has stopped. Close this tab.": "Chorus 已停止，請關閉此分頁。",
-    "No cached lyrics yet. Play something to populate it.": "還沒有快取歌詞，播放一些內容即可填入。"
+    "No cached lyrics yet. Play something to populate it.": "還沒有快取歌詞，播放一些內容即可填入。",
+  "⟳ Refresh status": "⟳ 重新整理狀態",
+  "Re-read the player right now instead of waiting for the next poll": "立即重新讀取播放器，而不是等待下一次輪詢"
 };
