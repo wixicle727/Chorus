@@ -5,6 +5,40 @@ All notable changes to Chorus are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] — 2026-10-21
+
+### Added
+
+- **Karaoke timing from NetEase, Kugou and QQ, not just Qishui.** These services publish a
+  per-syllable sheet alongside the plain one — YRC, KRC and QRC — and Chorus was only ever
+  asking for the plain one, which is why the fill drifted on songs that another player synced
+  correctly. All three are now requested first, converted to the same enhanced-LRC form the
+  fill already reads, and used when present. Kugou's sheet is encrypted, so it is decrypted
+  the same way Lyricify does it; QQ's is a hex 3DES variant with a non-standard key schedule
+  over deflated XML, implemented here because Node's OpenSSL build has no single-DES.
+- **A syllable sheet is now preferred over an identical-quality plain one.** When the karaoke
+  version of a song scores within three points of the winner, it is used instead, because it
+  is the better overlay even when the text match is fractionally worse. Bounded to two extra
+  fetches per track, and switchable off with `syllablePreferenceMargin: 0`.
+- **Writing credits no longer scroll past as lyrics.** NetEase, Kugou and QQ all carry
+  `词：…` / `曲：…` as timed lines in the intro. Lines inside the first twenty seconds that
+  start with a credit label and a colon are dropped, so a karaoke sheet opens on the first
+  sung line instead of the songwriter's name.
+
+### Changed
+
+- **A sheet without usable syllable stamps still sweeps.** A line needs at least two timed
+  syllables before the fill follows them; anything less falls back to the constant sweep, so
+  a karaoke-less song looks exactly as it did before.
+
+### Fixed
+
+- **Syllable stamps from NetEase and Kugou are absolute, and are now read that way.** Both
+  services time each syllable from the start of the track — the first syllable of a line
+  repeats the line's own start — but the first release of the converters added the line start
+  on top, roughly doubling every stamp. Lines early in a song then looked fully sung the
+  moment they appeared, while later lines never filled at all.
+
 ## [1.4.2] — 2026-10-20
 
 ### Fixed
@@ -400,7 +434,8 @@ First release.
 - Lyrics are fetched from public endpoints using only the track title and artist.
   No account, no API key, no telemetry.
 
-[Unreleased]: https://github.com/wixicle727/Chorus/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/wixicle727/Chorus/compare/v1.4.3...HEAD
+[1.4.3]: https://github.com/wixicle727/Chorus/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/wixicle727/Chorus/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/wixicle727/Chorus/releases/tag/v1.4.1
 [1.4.0]: https://github.com/wixicle727/Chorus/releases/tag/v1.4.0

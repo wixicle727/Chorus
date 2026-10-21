@@ -240,7 +240,7 @@ function trackKey(track) {
  * @param hooks     { onCandidate?: (candidate) => void, shouldAbort?: () => boolean }
  * @returns {{status:'matched'|'notfound'|'error', candidate, alternatives, errors, key}}
  */
-export async function resolveLyrics(registry, track, settings = {}, hooks = {}) {
+async function resolveLyricsInner(registry, track, settings = {}, hooks = {}) {
   const enabled = (settings.enabled ?? PROVIDER_IDS).filter((id) => registry.has(id));
   const order = (settings.providerOrder ?? PROVIDER_IDS).filter((id) => enabled.includes(id));
   const key = trackKey(track);
@@ -270,6 +270,16 @@ export async function resolveLyrics(registry, track, settings = {}, hooks = {}) 
           album: String(item.album ?? '').trim(),
           durationMs: Number(item.durationMs) || 0,
         };
+        // Providers address their lyric endpoints by ids that only appear in
+        // their own search response (QQ needs the numeric `songId` to reach the
+        // QRC karaoke sheet), so keep any extra scalar the provider attached
+        // rather than dropping everything outside this fixed field list.
+        for (const [field, value] of Object.entries(item)) {
+          if (field in candidate) continue;
+          if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+            candidate[field] = value;
+          }
+        }
         const scored = scoreCandidate(candidate, track, settings);
         candidate.score = scored.total;
         candidate.breakdown = scored.breakdown;
@@ -481,4 +491,86 @@ export async function resolveLyrics(registry, track, settings = {}, hooks = {}) 
   return { status: 'notfound', candidate: null, alternatives: ranked.slice(0, 12), errors, key };
 }
 
-export { PROVIDER_IDS };
+/**
+ * How many points a syllable-timed result may give away before it stops being
+ * worth the swap. Same order of magnitude as SYNC_PREFERENCE_MARGIN: a near-tie
+ * is where timing is worth more than the last fraction of a match score.
+ */
+const SYLLABLE_PREFERENCE_MARGIN = 3;
+
+/**
+ * Enhanced LRC keeps a `<mm:ss.xx>` stamp in front of every syllable. Its
+ * presence is how a fetched body advertises real karaoke timing.
+ */
+const SYLLABLE_TAG_PATTERN = /[<＜]\d{1,3}:\d{1,2}(?:[.:：]\d{1,3})?[>＞]/;
+
+/** True when this lyric body carries per-syllable timings rather than line stamps. */
+export function hasSyllableTiming(body) {
+  if (!body) return false;
+  if (body.syllable === true) return true;
+  return SYLLABLE_TAG_PATTERN.test(String(body.rawLyric ?? ''));
+}
+
+export async function resolveLyrics(registry, track, settings = {}, hooks = {}) {
+  const result = await resolveLyricsInner(registry, track, settings, hooks);
+  return preferSyllableTiming(result, registry, track, settings);
+}
+
+/**
+ * Prefer the karaoke sheet when the scores are close.
+ *
+ * AF-Media-Bar runs a timing policy on top of its matching for exactly this
+ * reason: the same song is often on several services, and one of them carries
+ * per-syllable stamps while another carries only line stamps. Whichever wins on
+ * score alone, the stamp-ed sheet is the better overlay because the fill follows
+ * the singing instead of guessing a sweep.
+ *
+ * The swap is bounded: only results within SYLLABLE_PREFERENCE_MARGIN of the
+ * winner are tried, only from providers that advertise `syllables`, and at most
+ * two extra fetches happen. Every other case — no karaoke sheet on the service,
+ * a network failure, a document with no usable stamps — keeps the original
+ * result, so nothing degrades to nothing.
+ *
+ * `settings.syllablePreferenceMargin = 0` turns the whole thing off.
+ */
+async function preferSyllableTiming(result, registry, track, settings = {}) {
+  if (result?.status !== 'matched' || !result.candidate) return result;
+  if (hasSyllableTiming(result.candidate)) return result;
+
+  const margin = Number(settings.syllablePreferenceMargin ?? SYLLABLE_PREFERENCE_MARGIN);
+  if (!(margin > 0)) return result;
+
+  const winnerScore = Number(result.candidate.score ?? 0);
+  const candidates = (result.alternatives ?? [])
+    .filter((candidate) => {
+      if (Number(candidate?.score ?? 0) < winnerScore - margin) return false;
+      return registry.get(candidate.provider)?.syllables === true;
+    })
+    .sort(compareCandidates);
+
+  for (const candidate of candidates.slice(0, 2)) {
+    const provider = registry.get(candidate.provider);
+    let body;
+    try {
+      body = await provider.fetchLyrics(candidate, track, settings);
+    } catch {
+      continue;
+    }
+    if (!body) continue;
+    const merged = { ...candidate, ...body };
+    if (!hasSyllableTiming(merged)) continue;
+    if (!merged.rawLyric && !merged.rawTranslation) continue;
+    return {
+      ...result,
+      candidate: merged,
+      estimated: Boolean(merged.estimated),
+      // Say why, so the panel can explain a swap that the score alone does not.
+      fallbackReason:
+        result.fallbackReason ?? `used ${merged.providerLabel} for its syllable timing`,
+      syllableSource: merged.providerLabel,
+    };
+  }
+
+  return result;
+}
+

@@ -429,6 +429,23 @@
      * Pure on purpose — the timing maths is the part worth testing, and it can
      * be exercised without a browser. Returns null when there is no line.
      */
+    /**
+     * The syllable stamps a line can actually be filled from, or null.
+     *
+     * Only sources that time every syllable provide these; the rest describe a
+     * line with one stamp and nothing inside it. A single stamp is no better than
+     * the constant sweep, so it is treated as absent — which is what keeps a
+     * karaoke-less song looking exactly as it always did.
+     */
+    const MIN_TIMED_WORDS = 2;
+
+    function usableWords(line) {
+      const list = Array.isArray(line.words) ? line.words : null;
+      if (!list || list.length < MIN_TIMED_WORDS) return null;
+      const timed = list.filter((word) => Number.isFinite(Number(word.timeMs)));
+      return timed.length >= MIN_TIMED_WORDS ? list : null;
+    }
+
     function karaokeProgressAt(index, positionMs, allLines = lines, offset = offsetMs) {
       if (!Number.isInteger(index) || index < 0) return null;
       const line = allLines[index];
@@ -446,10 +463,11 @@
       if (t <= start) return 0;
       if (t >= end) return 1;
 
-      // A source that stamps every syllable (Qishui) knows exactly when each one
-      // is sung, so the fill follows those stamps instead of sweeping at a
-      // constant rate — which is only ever an average of how people sing.
-      const words = Array.isArray(line.words) && line.words.length ? line.words : null;
+      // A source that stamps every syllable (Qishui, NetEase YRC, Kugou KRC) knows
+      // exactly when each one is sung, so the fill follows those stamps instead of
+      // sweeping at a constant rate — which is only ever an average of how people
+      // sing. Documents without usable syllable stamps fall through to the sweep.
+      const words = usableWords(line);
       if (words) {
         const total = words.reduce((n, w) => n + Math.max(String(w.text ?? '').length, 1), 0);
         let sung = 0;

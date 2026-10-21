@@ -277,6 +277,32 @@ export function dropTitleHeader(lines, track) {
 }
 
 /**
+ * Drop the writing credits that open a karaoke sheet.
+ *
+ * QQ's QRC and NetEase's word-level sheets both carry `词：唐沢美帆` / `曲：加賀山長志`
+ * as ordinary timed lines in the intro, which the overlay then displays as if
+ * somebody were singing them. AF-Media-Bar filters credit lines out during
+ * parsing for the same reason.
+ *
+ * Deliberately narrow: only the first CREDIT_WINDOW_MS of the track is inspected,
+ * and only lines that START with a credit label and a colon, so a real opening
+ * lyric that happens to contain 曲 or 词 is left alone. Lyrics that begin early
+ * and are not credits survive untouched.
+ *
+ * @param {Array<{timeMs:number,text:string}>} lines
+ */
+const CREDIT_WINDOW_MS = 20000;
+const CREDIT_LINE = /^\s*(?:词|詞|作词|作詞|作曲|编曲|編曲|曲|词曲|詞曲|制作人|監製|监制|混音|母带|母帶|录音|錄音|吉他|贝斯|貝斯|鼓|弦乐|弦樂|和声|和聲|op|sp)\s*[:：]\s*\S/i;
+
+export function dropCreditLines(lines) {
+  if (!Array.isArray(lines) || lines.length === 0) return lines;
+  return lines.filter((line) => {
+    if (!line || line.timeMs > CREDIT_WINDOW_MS) return true;
+    return !CREDIT_LINE.test(String(line.text ?? ''));
+  });
+}
+
+/**
  * Build a lyric object from a parsed line array: adds explicit end times so the
  * overlay can animate a line for exactly as long as it is on screen.
  */

@@ -55,9 +55,12 @@ const source = fs.readFileSync(PAGE, 'utf8');
 
 /** The page's own timing function, evaluated in isolation. */
 function makeProgress() {
+  const constant = source.match(/const MIN_TIMED_WORDS = \d+;/);
+  if (!constant) throw new Error('overlay.html no longer defines MIN_TIMED_WORDS');
+  const helper = extractFunction(source, 'usableWords');
   const code = extractFunction(source, 'karaokeProgressAt');
   // eslint-disable-next-line no-new-func
-  return new Function(`${code}; return karaokeProgressAt;`)();
+  return new Function(`${constant[0]} ${helper}; ${code}; return karaokeProgressAt;`)();
 }
 
 const progressAt = makeProgress();
@@ -181,6 +184,22 @@ check('the second syllable starts where the first ends',
 check('halfway through a two-character syllable adds half of it',
   Math.abs(progressAt(0, 13000, WORDED, 0) - 2 / 3) < 1e-9);
 check('the fill finishes when the last syllable does', progressAt(0, 14000, WORDED, 0) === 1);
+// The fallback the overlay owes every other source: stamps that cannot describe a
+// line must leave it sweeping exactly as it did before karaoke timing existed.
+check(
+  'a single stamp is not enough to fill from',
+  (() => {
+    const doc = [{ timeMs: 0, endMs: 10000, text: 'abcdef', words: [{ timeMs: 0, text: 'abcdef', endMs: 10000 }] }];
+    return progressAt(0, 5000, doc, 0) === 0.5;
+  })(),
+);
+check(
+  'stamps without usable times fall back to the sweep',
+  (() => {
+    const doc = [{ timeMs: 0, endMs: 10000, text: 'abcdef', words: [{ text: 'a' }, { text: 'b' }] }];
+    return progressAt(0, 5000, doc, 0) === 0.5;
+  })(),
+);
 // The point of the stamps: the old sweep ran to the next line's start, so it kept
 // colouring through silence that no one was singing over.
 check('silence after the last syllable stays full, not half swept',

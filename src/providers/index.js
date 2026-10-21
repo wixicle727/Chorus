@@ -23,6 +23,8 @@ import {
   splitArtists,
   withQuery,
 } from '../core/utils.js';
+import zlib from 'node:zlib';
+import { decryptQrc, qrcToLrc } from './qrc.js';
 
 /**
  * Search queries for a track, most specific first.
@@ -188,14 +190,168 @@ const lrclib = {
 };
 
 /* ------------------------------------------------------------------ *
+ * Syllable-level lyric formats (the "karaoke" sources)
+ *
+ * Plain LRC stamps only the start of each line, so a karaoke fill has to guess
+ * the pacing inside it. Three of the CJK services publish per-syllable timings
+ * under their own format, and AF-Media-Bar reads all of them:
+ *
+ *   NetEase YRC   [1671,1767](0,469,0)沈(469,365,0)む…      ( ) separators
+ *   Kugou   KRC   [1671,1767]<0,469,0>沈<469,365,0>む…      < > separators
+ *   Qishui        [1671,1767]<0,469,0>沈<469,365,0>む…
+ *
+ * All three use the same idea: `[line start ms, line duration ms]` followed by
+ * tokens of `<offset within the line, word duration, flag>text`. They are
+ * converted here into enhanced LRC (`[mm:ss.xx]<mm:ss.xx>沈…`), which is what
+ * parseLrc already understands, so the rest of the app needs no new format.
+ *
+ * A document that carries no timings at all yields '', and the caller keeps the
+ * plain LRC — a lyric sheet is never made worse by trying for the karaoke one.
+ * ------------------------------------------------------------------ */
+
+/** `[mm:ss.cc]` for a line start. */
+function lrcStamp(ms) {
+  const total = Math.max(0, Math.round(Number(ms) || 0));
+  const minutes = Math.floor(total / 60000);
+  const seconds = Math.floor((total % 60000) / 1000);
+  const centis = Math.floor((total % 1000) / 10);
+  return `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(centis).padStart(2, '0')}]`;
+}
+
+/** The same instant in the form enhanced LRC uses inside a line: `<mm:ss.xx>`. */
+function lrcWordStamp(ms) {
+  return `<${lrcStamp(ms).slice(1, -1)}>`;
+}
+
+/**
+ * One converted line, or null when it has no usable timing.
+ * @param {number} lineStart absolute milliseconds
+ * @param {number} lineEnd absolute milliseconds where the singing stops
+ * @param {Array<{at:number,text:string}>} words absolute syllable starts
+ */
+function syllableLineToLrc(lineStart, lineEnd, words) {
+  if (!words.length) return null;
+  const tagged = words.map((word) => `${lrcWordStamp(word.at)}${word.text}`).join('');
+  // A trailing tag with no text closes the line, so the fill stops when the
+  // singing does instead of running on through the silence that follows.
+  return `${lrcStamp(lineStart)}${tagged}${lrcWordStamp(lineEnd)}`;
+}
+
+/** Plain text with the timing tokens removed, used when a line has no syllables. */
+function stripTimingTokens(text, pattern) {
+  return String(text ?? '').replace(pattern, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Convert a NetEase YRC document into enhanced LRC.
+ * @param {string} text raw `yrc.lyric`
+ * @returns {string} LRC text, or '' when the document has no per-syllable timing
+ */
+export function yrcToLrc(text) {
+  const out = [];
+  for (const rawLine of String(text ?? '').split(/\r?\n/)) {
+    const match = rawLine.trim().match(/^\[(\d+),(\d+)\](.*)$/);
+    if (!match) continue;
+    const lineStart = Number(match[1]);
+    const lineEnd = lineStart + Number(match[2]);
+    const words = [];
+    for (const token of match[3].matchAll(/\((\d+),(\d+),\d+\)([^()]*)/g)) {
+      if (!token[3].trim()) continue;
+      // YRC syllable offsets are absolute milliseconds from the start of the
+      // track, not relative to the line: the first syllable of a line repeats
+      // the line's own start value. Adding lineStart here doubled the time and
+      // left every line filling only at the very end of the song.
+      words.push({ at: Number(token[1]), text: token[3] });
+    }
+    const built = syllableLineToLrc(lineStart, lineEnd, words);
+    if (built) out.push(built);
+    else {
+      const plain = stripTimingTokens(match[3], /\([^)]*\)/g);
+      if (plain) out.push(`${lrcStamp(lineStart)}${plain}`);
+    }
+  }
+  return out.length ? `${out.join('\n')}\n` : '';
+}
+
+/**
+ * Convert a Kugou KRC document (already decrypted) into enhanced LRC.
+ *
+ * KRC files start with metadata lines such as `[id:$00000000]`, `[ar:…]`, which
+ * the `^\d+,\d+` guard skips for free.
+ *
+ * @param {string} text plaintext KRC
+ * @returns {string} LRC text, or '' when the document has no per-syllable timing
+ */
+export function krcToLrc(text) {
+  const out = [];
+  for (const rawLine of String(text ?? '').split(/\r?\n/)) {
+    const match = rawLine.trim().match(/^\[(\d+),(\d+)\](.*)$/);
+    if (!match) continue;
+    const lineStart = Number(match[1]);
+    const lineEnd = lineStart + Number(match[2]);
+    const words = [];
+    for (const token of match[3].matchAll(/<(\d+),(\d+),\d+>([^<]*)/g)) {
+      if (!token[3].trim()) continue;
+      // KRC syllable offsets are absolute milliseconds from the start of the
+      // track, exactly like YRC, so the line start is not added here.
+      words.push({ at: Number(token[1]), text: token[3] });
+    }
+    const built = syllableLineToLrc(lineStart, lineEnd, words);
+    if (built) out.push(built);
+    else {
+      const plain = stripTimingTokens(match[3], /<[^>]*>/g);
+      if (plain) out.push(`${lrcStamp(lineStart)}${plain}`);
+    }
+  }
+  return out.length ? `${out.join('\n')}\n` : '';
+}
+
+/**
+ * Kugou's KRC cipher key, the same one Lyricify (and therefore AF-Media-Bar)
+ * uses: the file is base64, the first four bytes are a header, and the rest is
+ * this repeating XOR followed by a raw-deflate stream.
+ */
+const KRC_KEY = Buffer.from([
+  0x40, 0x47, 0x61, 0x77, 0x5e, 0x32, 0x74, 0x47, 0x51, 0x36, 0x31, 0x2d, 0xce, 0xd2, 0x6e, 0x69,
+]);
+
+/**
+ * Decrypt a base64 KRC payload.
+ * @param {string} base64 the `content` field of the Kugou download response
+ * @returns {string} plaintext KRC, or '' when the payload cannot be read
+ */
+export function decodeKrcBase64(base64) {
+  let buffer;
+  try {
+    buffer = Buffer.from(String(base64 ?? ''), 'base64');
+  } catch {
+    return '';
+  }
+  if (buffer.length <= 4) return '';
+  const data = Buffer.from(buffer.subarray(4));
+  for (let i = 0; i < data.length; i += 1) data[i] ^= KRC_KEY[i % KRC_KEY.length];
+  for (const attempt of [zlib.inflateSync, zlib.inflateRawSync, zlib.unzipSync]) {
+    try {
+      return attempt(data).toString('utf8');
+    } catch {
+      // Try the next framing before giving up.
+    }
+  }
+  return '';
+}
+
+/* ------------------------------------------------------------------ *
  * NetEase Cloud Music (网易云音乐)
  *   search: /api/search/get            (plain JSON when called with a Referer)
  *   lyric:  /api/song/lyric?id=&lv=1&kv=1&tv=-1  -> lrc.lyric + tlyric.lyric
+ *   karaoke: the same call with yv=1 also fills yrc.lyric when the song has it
  * ------------------------------------------------------------------ */
 
 const netease = {
   id: 'netease',
   label: 'NetEase Cloud Music',
+  // Returns per-syllable timings (YRC) when the song has them.
+  syllables: true,
   headers: { Referer: 'https://music.163.com/' },
 
   async search(track, settings) {
@@ -246,11 +402,30 @@ const netease = {
         lv: 1,
         kv: 1,
         tv: -1,
+        // yv=1 asks for the per-syllable version. The endpoint answers without it
+        // for songs that have none, which is most of them, so this costs nothing
+        // when there is no karaoke sheet to be had.
+        yv: 1,
       }),
       { headers: this.headers },
     );
-    const rawLyric = String(payload?.lrc?.lyric ?? '');
     const rawTranslation = String(payload?.tlyric?.lyric ?? '');
+    // YRC first: it is the same lyrics with syllable timings, so it is strictly
+    // more useful than the plain LRC the same response carries.
+    const yrcText = String(payload?.yrc?.lyric ?? '');
+    if (yrcText.trim()) {
+      const karaoke = yrcToLrc(yrcText);
+      if (karaoke) {
+        return {
+          rawLyric: karaoke,
+          rawTranslation: rawTranslation || null,
+          format: 'yrc',
+          syllable: true,
+          pureMusic: Boolean(payload?.pureMusic),
+        };
+      }
+    }
+    const rawLyric = String(payload?.lrc?.lyric ?? '');
     // NetEase pads untimed header lines and may include [00:00.000] credits,
     // the parser drops those.
     return {
@@ -306,6 +481,8 @@ export function qqSongKey(song) {
 const qq = {
   id: 'qq',
   label: 'QQ Music',
+  // Returns per-syllable timings (QRC) for songs that publish them.
+  syllables: true,
   headers: { Referer: 'https://y.qq.com/' },
 
   /**
@@ -356,6 +533,9 @@ const qq = {
           album: String(song.albumname ?? song.album?.name ?? ''),
           // `interval` is the duration in seconds on both endpoints.
           durationMs: (Number(song.interval) || 0) * 1000,
+          // QRC (the karaoke sheet) is addressed by numeric id, which only the
+          // search responses carry; the mid alone cannot reach it.
+          songId: Number(song.songid ?? song.id) || 0,
         });
       }
       if (results.length > 0) break;
@@ -400,6 +580,8 @@ const qq = {
   },
 
   async fetchLyrics(candidate) {
+    const qrc = await this.fetchQrc(candidate);
+    if (qrc) return qrc;
     const text = await getText(
       withQuery('https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg', {
         songmid: candidate.key,
@@ -426,6 +608,49 @@ const qq = {
       pureMusic: noLyrics,
     };
   },
+
+  /**
+   * The karaoke sheet, when QQ has one.
+   *
+   * `lyric_download.fcg` with `lrctype=4` answers QRC — hex, encrypted, deflated —
+   * which is the only QQ format that carries per-syllable timings. Not every song
+   * has one (a pure-instrumental or a plain-LRC release answers an empty or
+   * undecryptable body), so a failure here is silent and the caller falls back to
+   * the ordinary LRC endpoint rather than surfacing an error.
+   */
+  async fetchQrc(candidate) {
+    const songId = Number(candidate?.songId) || 0;
+    if (!songId) return null;
+
+    let xml = '';
+    try {
+      const response = await fetch('https://c.y.qq.com/qqmusic/fcgi-bin/lyric_download.fcg', {
+        method: 'POST',
+        headers: {
+          ...this.headers,
+          'content-type': 'application/x-www-form-urlencoded',
+          Referer: 'https://y.qq.com/portal/player.html',
+        },
+        body: new URLSearchParams({
+          version: '15',
+          miniversion: '82',
+          lrctype: '4',
+          musicid: String(songId),
+        }).toString(),
+        signal: AbortSignal.timeout(8000),
+      });
+      const text = await response.text();
+      const node = text.match(/<content[^>]*>([\s\S]*?)<\/content>/);
+      const payload = node ? node[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim() : '';
+      if (payload) xml = decryptQrc(payload);
+    } catch {
+      return null;
+    }
+
+    const rawLyric = xml ? qrcToLrc(xml) : '';
+    if (!rawLyric) return null;
+    return { rawLyric, rawTranslation: null, format: 'qrc', syllable: true };
+  },
 };
 
 /* ------------------------------------------------------------------ *
@@ -442,6 +667,8 @@ const qq = {
 const kugou = {
   id: 'kugou',
   label: 'Kugou',
+  // Returns per-syllable timings (KRC) when the song has them.
+  syllables: true,
 
   async search(track, settings) {
     const timeoutMs = settings.searchTimeoutMs;
@@ -492,6 +719,31 @@ const kugou = {
 
   async fetchLyrics(candidate) {
     const [id, accesskey] = String(candidate.key).split(':');
+    // Ask for KRC first. It is the same song with per-character timings, and the
+    // service simply answers `status: 0` for tracks that have no karaoke sheet,
+    // which is what the plain-LRC request below is for.
+    try {
+      const krcPayload = await getJson(
+        withQuery('https://lyrics.kugou.com/download', {
+          ver: 1,
+          client: 'pc',
+          id,
+          accesskey,
+          fmt: 'krc',
+          charset: 'utf8',
+        }),
+      );
+      if (krcPayload?.content) {
+        const karaoke = krcToLrc(decodeKrcBase64(krcPayload.content));
+        if (karaoke) {
+          // KRC translation lines are stored as a second block this app does not
+          // split out yet; the original alone is still the better lyric sheet.
+          return { rawLyric: karaoke, rawTranslation: null, format: 'krc', syllable: true };
+        }
+      }
+    } catch {
+      // No karaoke sheet; fall through to the plain LRC download.
+    }
     const payload = await getJson(
       withQuery('https://lyrics.kugou.com/download', {
         ver: 1,
@@ -527,20 +779,6 @@ const kugou = {
  * (`cn`, sometimes others), and are already plain LRC.
  * ------------------------------------------------------------------ */
 
-/** Qishui timestamps lyric lines in milliseconds; LRC wants centiseconds. */
-function lrcStamp(ms) {
-  const total = Math.max(0, Math.round(Number(ms) || 0));
-  const minutes = Math.floor(total / 60000);
-  const seconds = Math.floor((total % 60000) / 1000);
-  const centis = Math.floor((total % 1000) / 10);
-  return `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(centis).padStart(2, '0')}]`;
-}
-
-/** The same instant in the form enhanced LRC uses inside a line: `<mm:ss.xx>`. */
-function lrcWordStamp(ms) {
-  return `<${lrcStamp(ms).slice(1, -1)}>`;
-}
-
 /**
  * Convert one of Qishui's karaoke lyric documents into enhanced LRC.
  *
@@ -569,6 +807,7 @@ export function qishuiRichToLrc(content) {
     const words = [];
     for (const token of match[3].matchAll(/<(\d+),(\d+),\d+>([^<]*)/g)) {
       if (!token[3].trim()) continue;
+      // Qishui's offsets really are relative to the line, unlike YRC and KRC.
       words.push({ at: lineStart + Number(token[1]), text: token[3] });
     }
 
@@ -603,6 +842,8 @@ function qishuiTranslation(translations) {
 const qishui = {
   id: 'qishui',
   label: 'Qishui Music',
+  // Every Qishui sheet is syllable-timed; that is the whole point of the source.
+  syllables: true,
   headers: {
     // The web client's UA is enough for both endpoints; no cookie or signature
     // is needed for search or lyrics (the PC endpoints do require one).

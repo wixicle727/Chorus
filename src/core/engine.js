@@ -9,7 +9,7 @@
  */
 
 import { BridgeClient, selectSession, isPlaying, PlaybackStatus } from './bridge.js';
-import { activeIndexAt, buildLyricDoc, dropTitleHeader, mergeLyrics } from './lrc.js';
+import { activeIndexAt, buildLyricDoc, dropCreditLines, dropTitleHeader, mergeLyrics } from './lrc.js';
 import { createRegistry, resolveLyrics, providerLabel } from './match.js';
 import { PROVIDERS } from '../providers/index.js';
 import { clamp } from './utils.js';
@@ -291,7 +291,7 @@ export class Engine extends EventEmitterLike {
 
       if (result.status === 'matched' && result.candidate) {
         const lines = buildLyricDoc(
-          dropTitleHeader(mergeLyrics(result.candidate.rawLyric, result.candidate.rawTranslation), track),
+          dropCreditLines(dropTitleHeader(mergeLyrics(result.candidate.rawLyric, result.candidate.rawTranslation), track)),
           track.durationMs,
         );
         const hasTranslation = lines.some((l) => l.translation);
@@ -446,7 +446,7 @@ export class Engine extends EventEmitterLike {
     if (!provider) return { ok: false, error: `unknown provider ${candidate.provider}` };
     try {
       const body = await provider.fetchLyrics(candidate, track, this.config.lyrics);
-      const lines = buildLyricDoc(dropTitleHeader(mergeLyrics(body.rawLyric, body.rawTranslation), track), track.durationMs);
+      const lines = buildLyricDoc(dropCreditLines(dropTitleHeader(mergeLyrics(body.rawLyric, body.rawTranslation), track)), track.durationMs);
       if (lines.length === 0) return { ok: false, error: 'that result has no lyrics' };
       const payload = {
         status: 'matched',

@@ -70,7 +70,7 @@ Windows SMTC  →  bundled bridge  →  Chorus  →  OBS Browser Source
 | 🔍 **Five lyric sources, in parallel** | LRCLIB, NetEase Cloud Music, QQ Music, Kugou and Qishui Music, scored and ranked. |
 | 🈶 **Strong CJK coverage** | NetEase, QQ Music, Kugou and Qishui alongside LRCLIB — and NetEase, QQ and Qishui bring translations too. |
 | 🖤 **Not broken by Alt+Tab** | Timer-driven, so lyrics keep scrolling while OBS sits in the background. |
-| 🎤 **Karaoke fill** | The active line fills with colour from left to right as it is sung — syllable by syllable when the source publishes timings (Qishui), at an even rate otherwise. |
+| 🎤 **Karaoke fill** | The active line fills with colour from left to right as it is sung — syllable by syllable when the source publishes timings (Qishui, QQ Music, Kugou and NetEase), at an even rate otherwise. |
 | 🎛️ **Everything adjustable live** | Font, sizes, colours, alignment, shadow, translation, karaoke, offset — applied to the running OBS source instantly. |
 | 💿 **A second overlay for "what's playing"** | Cover art, title, artist and progress. Works for any player, and for tracks that have no lyrics at all. |
 | 🙈 **Silent when there is nothing to show** | Optionally render nothing at all for a track without lyrics, instead of a "no lyrics found" notice. |

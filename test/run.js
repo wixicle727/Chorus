@@ -9,6 +9,7 @@
  * real providers) and are reported separately so a sandboxed run is still useful.
  */
 
+import zlib from 'node:zlib';
 import { parseLrc, mergeLyrics, buildLyricDoc, activeIndexAt, isInstrumentalText, toLrcText } from '../src/core/lrc.js';
 import {
   splitArtists,
@@ -1009,6 +1010,167 @@ section('Update checking');
  * Qishui lyric conversion
  * ------------------------------------------------------------------ */
 
+async function testKaraokeSources() {
+  section('Karaoke lyric sources (YRC / KRC)');
+
+  const { yrcToLrc, krcToLrc, decodeKrcBase64 } = await import('../src/providers/index.js');
+  const { hasSyllableTiming, resolveLyrics } = await import('../src/core/match.js');
+  const { parseLrc } = await import('../src/core/lrc.js');
+
+  // NetEase YRC uses ( ) separators, Kugou KRC and Qishui use < >. Both become the
+  // same enhanced LRC, so one parser and one overlay path serve all three.
+  // Offsets below are absolute, the way NetEase writes them: the first syllable
+  // of a line repeats the line start rather than starting at zero.
+  const yrc = yrcToLrc('[15278,3319](15278,403,0)雨(15838,403,0)下(16398,403,0)了');
+  check(
+    'YRC converts to syllable-tagged LRC',
+    yrc === '[00:15.27]<00:15.27>雨<00:15.83>下<00:16.39>了<00:18.59>\n',
+    JSON.stringify(yrc),
+  );
+  check(
+    'YRC keeps the syllable stamps readable by our parser',
+    parseLrc(yrc).lines[0]?.words?.length === 3,
+    JSON.stringify(parseLrc(yrc).lines[0]?.words),
+  );
+  check('an untimed YRC line is dropped', yrcToLrc('no stamps here') === '');
+  check('an empty YRC document yields nothing', yrcToLrc('') === '' && yrcToLrc(undefined) === '');
+
+  const krc = krcToLrc('[15278,3319]<15278,403,0>雨<15838,403,0>下');
+  check(
+    'KRC converts to syllable-tagged LRC',
+    krc === '[00:15.27]<00:15.27>雨<00:15.83>下<00:18.59>\n',
+    JSON.stringify(krc),
+  );
+  check(
+    'KRC metadata lines are skipped',
+    krcToLrc('[id:$00000000]\n[ar:Somebody]\n[1000,2000]<1000,100,0>hi') === '[00:01.00]<00:01.00>hi<00:03.00>\n',
+    JSON.stringify(krcToLrc('[id:$00000000]\n[ar:Somebody]\n[1000,2000]<1000,100,0>hi')),
+  );
+
+  // The cipher: four header bytes, then a repeating XOR, then raw deflate. Encode a
+  // document the way Kugou does and prove the decoder reverses it.
+  const plainKrc = '[1000,2000]<0,500,0>あ<500,500,0>い';
+  const key = Buffer.from([0x40, 0x47, 0x61, 0x77, 0x5e, 0x32, 0x74, 0x47, 0x51, 0x36, 0x31, 0x2d, 0xce, 0xd2, 0x6e, 0x69]);
+  const deflated = zlib.deflateSync(Buffer.from(plainKrc, 'utf8'));
+  for (let i = 0; i < deflated.length; i += 1) deflated[i] ^= key[i % key.length];
+  const payload = Buffer.concat([Buffer.from([0x03, 0x00, 0x00, 0x00]), deflated]).toString('base64');
+  check('a KRC payload decrypts back to the original', decodeKrcBase64(payload) === plainKrc);
+  check('garbage KRC yields an empty string', decodeKrcBase64('not-base64!!') === '');
+  check('a truncated KRC yields an empty string', decodeKrcBase64('AAAA') === '');
+
+  check('a syllable-tagged body is recognised as timed', hasSyllableTiming({ rawLyric: krc }));
+  check('a plain LRC body is not', hasSyllableTiming({ rawLyric: '[00:01.00]hi' }) === false);
+  check('an explicit flag is honoured', hasSyllableTiming({ rawLyric: '', syllable: true }));
+
+  // Selection: a near-tied karaoke source should win over a plain one, but only
+  // within the margin and only when it really returns stamps.
+  const body = (text, extra = {}) => ({ rawLyric: text, rawTranslation: null, format: 'lrc', ...extra });
+  const makeProvider = (id, results) => ({
+    id,
+    label: id,
+    syllables: Boolean(results.syllables),
+    async search() {
+      return results.candidates;
+    },
+    async fetchLyrics(candidate) {
+      return results.fetch(candidate);
+    },
+  });
+  const registry = new Map();
+  const track = { title: 'Test Song', artist: 'Test Artist', durationMs: 200000 };
+  const plainCandidate = { provider: 'lrclib', key: 'p', title: 'Test Song', artist: 'Test Artist', album: '', durationMs: 200000 };
+  const karaokeCandidate = { provider: 'qishui', key: 'k', title: 'Test Song', artist: 'Test Artist', album: '', durationMs: 200000 };
+
+  registry.set('lrclib', makeProvider('lrclib', {
+    candidates: [plainCandidate],
+    fetch: () => body('[00:01.00]plain line'),
+  }));
+  registry.set('qishui', makeProvider('qishui', {
+    syllables: true,
+    candidates: [karaokeCandidate],
+    fetch: () => body('[00:01.00]<00:01.00>ka<00:01.50>ra', { syllable: true }),
+  }));
+
+  const plainFirst = { ...SETTINGS, enabled: ['lrclib', 'qishui'], providerOrder: ['lrclib', 'qishui'], preferredProvider: 'lrclib' };
+  const upgraded = await resolveLyrics(registry, track, plainFirst);
+  check('a near-tied karaoke source replaces a plain one', upgraded.candidate?.provider === 'qishui', upgraded.candidate?.provider);
+  check('the swap is recorded for the panel', Boolean(upgraded.syllableSource), JSON.stringify(upgraded.syllableSource));
+
+  // Turning the preference off restores plain score order.
+  const off = await resolveLyrics(registry, track, { ...plainFirst, syllablePreferenceMargin: 0 });
+  check('the preference can be turned off', off.candidate?.provider === 'lrclib', off.candidate?.provider);
+
+  // A provider that claims syllables but returns a plain sheet must not win.
+  registry.set('qishui', makeProvider('qishui', {
+    syllables: true,
+    candidates: [karaokeCandidate],
+    fetch: () => body('[00:01.00]just a line'),
+  }));
+  const noStamps = await resolveLyrics(registry, track, plainFirst);
+  check('a source without real stamps does not replace a plain one', noStamps.candidate?.provider === 'lrclib', noStamps.candidate?.provider);
+
+  // QQ's karaoke sheet is QRC: hex, encrypted, deflated, and timed per syllable.
+  const { qrcToLrc, decryptQrc } = await import('../src/providers/qrc.js');
+  const qrcXml = [
+    '<QrcInfos><LyricInfo><Lyric_1 LyricType="1" LyricContent="[ti:POPCORN DREAMING♪]&#10;[offset:0]&#10;',
+    '[0,330]POPCORN(0,10) (10,10)DREAMING♪(20,10)&#10;',
+    '[330,340]词(330,56)：(386,56)唐(442,56)沢(498,56)&#10;',
+    '[1346,2066]笑(1346,231)顔(1577,455)と(2032,479)"/>',
+    '</LyricInfo></QrcInfos>',
+  ].join('');
+  const qrcLrc = qrcToLrc(qrcXml);
+  const qrcLines = qrcLrc.split('\n');
+  check('QRC becomes enhanced LRC', qrcLines.length === 3, qrcLines.length);
+  check('QRC keeps the line stamps', qrcLines[1].startsWith('[00:00.33]'), qrcLines[1].slice(0, 12));
+  check('QRC keeps syllable stamps', qrcLines[1].includes('<00:00.33>词') && qrcLines[1].includes('<00:00.44>唐'), qrcLines[1].slice(0, 60));
+  check('QRC closes the line at its declared end', qrcLines[1].endsWith('<00:00.67>'), qrcLines[1].slice(-12));
+  check('QRC drops metadata lines', !qrcLrc.includes('[ti:') && !qrcLrc.includes('[offset:'), qrcLrc.includes('[ti:'));
+  check('QRC parses back into words', parseLrc(qrcLrc).lines[1].words?.length === 4, parseLrc(qrcLrc).lines[1].words?.length);
+  check('a payload that is not QRC decrypts to nothing', decryptQrc('not-a-cipher') === '', decryptQrc('not-a-cipher'));
+
+  // Credits are timed lines in a karaoke sheet, but nobody sings them.
+  const { dropCreditLines } = await import('../src/core/lrc.js');
+  const credits = [
+    { timeMs: 0, text: 'POPCORN DREAMING♪' },
+    { timeMs: 330, text: '词：唐沢美帆' },
+    { timeMs: 670, text: '曲：加賀山長志' },
+    { timeMs: 1010, text: '編曲：釣俊輔' },
+    { timeMs: 1346, text: '笑顔と笑顔が' },
+    { timeMs: 30000, text: '曲：a late credit' },
+    { timeMs: 2000, text: '曲がり角で' },
+  ];
+  const kept = dropCreditLines(credits).map((line) => line.text);
+  check('credit lines are dropped', !kept.includes('词：唐沢美帆') && !kept.includes('曲：加賀山長志') && !kept.includes('編曲：釣俊輔'), kept.length);
+  check('the opening lyric survives', kept.includes('笑顔と笑顔が') && kept.includes('POPCORN DREAMING♪'), kept.length);
+  check('a lyric that merely contains 曲 survives', kept.includes('曲がり角で'), kept.join('|'));
+  check('a late credit-looking line survives', kept.includes('曲：a late credit'), kept.join('|'));
+
+  // Providers address their endpoints by ids only their own search returns.
+  const { createRegistry: makeRegistry } = await import('../src/core/match.js');
+  const passThrough = makeRegistry([
+    {
+      id: 'lrclib',
+      label: 'LRCLIB',
+      syllables: true,
+      async search() {
+        return [{ key: 'track-1', title: 'POPCORN DREAMING♪', artist: 'AIKATSU', durationMs: 268000, songId: 308417463 }];
+      },
+      async fetchLyrics() {
+        return { rawLyric: '[00:01.00]<00:01.00>a<00:01.50>b', rawTranslation: null, format: 'qrc' };
+      },
+    },
+  ]);
+  const carried = await resolveLyrics(passThrough, { title: 'POPCORN DREAMING♪', artist: 'AIKATSU', durationMs: 268000 }, {
+    enabled: ['lrclib'],
+    providerOrder: ['lrclib'],
+    acceptScore: 70,
+    minScore: 40,
+    syllablePreferenceMargin: 3,
+    fallback: { enabled: false, minScore: 60 },
+  });
+  check('provider-specific ids survive candidate scoring', carried.candidate?.songId === 308417463, carried.candidate?.songId);
+}
+
 async function testQishui() {
   section('Qishui Music');
 
@@ -1297,6 +1459,7 @@ async function testBloomyRegression() {
 
 // These need await (they read files), so they run here rather than in the
 // sequential block above. All of them are offline.
+await testKaraokeSources();
 await testQishui();
 await testUpdater();
 await testLyricsSortMode();
