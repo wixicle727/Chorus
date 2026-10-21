@@ -8,7 +8,7 @@
 
 **为 OBS 提供实时歌词，内容直接来自 Windows 上正在播放的一切。**
 
-它会从 Windows 系统媒体传输控制（SMTC）里读出当前曲目，按标题和歌手在四个平台上找到原版歌词，再渲染成一个透明、自动滚动的歌词页面 —— 你把它作为浏览器源（Browser Source）加进 OBS 就行了。
+它会从 Windows 系统媒体传输控制（SMTC）里读出当前曲目，按标题和歌手在五个平台上找到原版歌词，再渲染成一个透明、自动滚动的歌词页面 —— 你把它作为浏览器源（Browser Source）加进 OBS 就行了。
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?logo=windows&logoColor=white)](https://github.com/wixicle727/Chorus)
 [![Node](https://img.shields.io/badge/node-%E2%89%A522-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
@@ -156,14 +156,15 @@ Windows 说的「当前焦点」常常是个浏览器标签页，而不是你的
 
 ### 2. 搜索原版歌词
 
-曲名和歌手会**同时**在四个平台上搜：
+曲名和歌手会**同时**在五个平台上搜：
 
 | 来源 | 说明 |
 |---|---|
 | **LRCLIB** | 开放数据库，带时间轴的 LRC，不需要 key。欧美曲目最好用。 |
-| **网易云音乐** | 中日韩曲库很强，还能一并提供翻译。 |
-| **QQ 音乐** | 中日韩覆盖面非常广。需要一个 `Referer` 头，由服务端设置。 |
-| **酷狗** | 再一层中日韩兜底，先按标题搜，再按时长排名。 |
+| **网易云音乐** | 中日韩曲库很强，还能一并提供翻译；有逐字谱（YRC）时也会一并取回。 |
+| **QQ 音乐** | 中日韩覆盖面非常广。需要一个 `Referer` 头，由服务端设置。提供逐字谱（QRC）。 |
+| **酷狗** | 再一层中日韩兜底，先按标题搜，再按时长排名。提供加密的逐字谱（KRC）。 |
+| **汽水音乐** | TikTok／抖音曲库。歌词自带逐字时间，通常还带翻译。 |
 
 <details>
 <summary><b>为什么搜索放在服务端跑</b></summary>
@@ -364,13 +365,18 @@ npm run test:engine   # engine timing against a fake smtc-bridge
 npm run test:ui       # pages, DOM contract, theme tokens and the JSON API
 ```
 
-**三个套件，共 278 项检查：**
+**八套件，共 610 项检查：**
 
 | 套件 | 检查数 | 覆盖 |
 |---|---|---|
-| `test/run.js` | 133 | LRC 解析（小数位宽度、多时间戳行、offset 头、逐字标签、CRLF）、歌手拆分、无时间轴歌词 → 估算时间轴、文本归一化、打分、标题门槛、版本降权、分数优先的选择、回退策略、会话选择、**直播标题识别**（这样一首叫 `!NVADE SHOW!` 的歌不会被当成 Twitch 标签）、smtc-bridge 载荷 |
-| `test/engine.js` | 18 | 拿假 smtc-bridge 跑真正的引擎：暂停会广播、位置随之冻结、不刷爆 socket、恢复会广播、`refresh` 绕过缓存里的否定结果、空闲曲目照样发心跳 |
-| `test/ui.js` | 127 | 每个页面和资源都能被送出、面板脚本要找的每个元素都在、歌词层轮播与透明度的约定、**歌词层循环里没有 `requestAnimationFrame`**、无视 ping 的歌词层客户端仍保持连接、JSON API、没有任何颜色用 Windows 的 `#AARRGGBB` 字节序、品牌图标被正确送出并链接 |
+| `test/run.js` | 226 | LRC 解析（小数位宽度、多时间戳行、offset 头、逐字标签、CRLF）、歌手拆分、无时间轴歌词 → 估算时间轴、文本归一化、打分、标题门槛、版本降权、分数优先的选择、回退策略、逐字谱转换（YRC、KRC、QRC）、KRC 解密、会话选择、**直播标题识别**（这样一首叫 `!NVADE SHOW!` 的歌不会被当成 Twitch 标签）、smtc-bridge 载荷 |
+| `test/engine.js` | 28 | 拿假 smtc-bridge 跑真正的引擎：暂停会广播、位置随之冻结、不刷爆 socket、恢复会广播、`refresh` 绕过缓存里的否定结果、刷新状态会重新读播放器、空闲曲目照样发心跳 |
+| `test/ui.js` | 194 | 每个页面和资源都能被送出、面板脚本要找的每个元素都在、歌词层轮播与透明度的约定、**歌词层循环里没有 `requestAnimationFrame`**、无视 ping 的歌词层客户端仍保持连接、JSON API、没有任何颜色用 Windows 的 `#AARRGGBB` 字节序、品牌图标被正确送出并链接 |
+| `test/nowplaying.js` | 23 | 封面取色：主色提取、忽略黑边、浅色封面自动改用深色文字、两种底板样式 |
+| `test/karaoke.js` | 47 | 填色几何：任意位置的比例、逐字行、行尾止住、偏移处理、双层遮罩，以及没有逐字时间时退回均匀推进 |
+| `test/control.js` | 20 | 按标题、歌手或分数给结果排序，包含数字顺序与不受系统语言影响 |
+| `test/i18n.js` | 19 | 两套词典覆盖所有可见文字、服务端与页面对三种语言的判断一致、切换器已接线 |
+| `test/updater.js` | 53 | 自更新全流程：读 zip、拒绝越界路径、备份、交换脚本，以及缓存规则 |
 
 `npm test` 还会额外跑真实查询：一首日文、一首英文、一首中文，再加一首故意匹配不上的，并对每个来源做一遍冒烟测试。
 
@@ -397,6 +403,7 @@ npm run test:ui       # pages, DOM contract, theme tokens and the JSON API
 | `DELETE` | `/api/cache` · `/api/cache/:hash` | 清空全部 / 删掉单条 |
 | `GET` / `DELETE` | `/api/history` | 最近播放 |
 | `POST` | `/api/refresh` | 重新解析当前曲目 |
+| `POST` | `/api/resync` | 立即重读播放器，不用等下一次轮询 |
 | `POST` | `/api/candidate` | 应用某个指定的搜索结果 |
 | `POST` | `/api/manual` | 应用粘贴进来的 LRC |
 | `POST` / `PUT` | `/api/offset` | 微调 / 设置歌词偏移 |
@@ -457,8 +464,8 @@ Windows 本身只以大约一秒的粒度提供位置，所以即便播放器很
 
 - 只有会发布 Windows 媒体会话的来源才看得见。如果某个播放器把 SMTC 藏了起来，去它自己的设置里打开「系统媒体控制」。
 - 有些播放器得先处于*播放中*，Windows 才会报告它的会话。
-- 歌词层是纯文本 —— 没有逐字高亮，因为四个来源里没有一个能为任意曲目给出可靠的逐字时间。
-- 翻译只来自网易云和 QQ。LRCLIB 和酷狗返回的是原文歌词。
+- 卡拉 OK 的逐字时间取决于来源，而不是 Chorus。网易云、QQ 音乐、酷狗和汽水音乐都有逐字谱，填色会跟着走；如果一首歌只有普通歌词，填色就退回整行均匀推进。
+- 翻译只来自网易云、QQ 音乐和汽水音乐。LRCLIB 和酷狗返回的是原文歌词。
 - 官方流媒体 API 是刻意不用的 —— 它们要按用户做 OAuth，而元数据 Windows 已经给我们了。
 - 查歌词只用曲名和歌手，走公开接口。关于你这台机器的其他任何东西都不会离开这台机器。
 

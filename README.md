@@ -190,14 +190,15 @@ Supported platforms are matched from the Windows app id:
 
 ### 2. Search for original lyrics
 
-The track title and artist are searched across four platforms **in parallel**:
+The track title and artist are searched across five platforms **in parallel**:
 
 | Source | Notes |
 |---|---|
 | **LRCLIB** | Open database, synced LRC, no key. Best for Western tracks. |
-| **NetEase Cloud Music** | Strong CJK catalogue; also supplies translations. |
-| **QQ Music** | Very broad CJK coverage. Needs a `Referer` header, set server-side. |
-| **Kugou** | Further CJK fallback, searched by title then ranked by duration. |
+| **NetEase Cloud Music** | Strong CJK catalogue; also supplies translations, and a syllable sheet (YRC) when one exists. |
+| **QQ Music** | Very broad CJK coverage. Needs a `Referer` header, set server-side. Publishes a syllable sheet (QRC). |
+| **Kugou** | Further CJK fallback, searched by title then ranked by duration. Publishes an encrypted syllable sheet (KRC). |
+| **Qishui Music** | TikTok/抖音 catalogue. Karaoke-timed rich lyrics that usually carry a translation. |
 
 <details>
 <summary><b>Why the search runs server-side</b></summary>
@@ -449,13 +450,18 @@ npm run test:engine   # engine timing against a fake smtc-bridge
 npm run test:ui       # pages, DOM contract, theme tokens and the JSON API
 ```
 
-**278 checks** across three suites:
+**610 checks** across eight suites:
 
 | Suite | Checks | Covers |
 |---|---|---|
-| `test/run.js` | 133 | LRC parsing (fraction widths, multi-timestamp lines, offset headers, word tags, CRLF), artist splitting, untimed lyrics → estimated timings, text normalisation, scoring, the title gate, version demotion, score-first selection, the fallback policy, session selection, **stream-title detection** (so a song called `!NVADE SHOW!` is not mistaken for a Twitch tab), smtc-bridge payloads |
-| `test/engine.js` | 18 | Runs the real engine against a fake smtc-bridge: pausing is broadcast, position then freezes, no socket spam, resuming is broadcast, `refresh` bypasses a cached negative result, and an idle track still emits a heartbeat |
-| `test/ui.js` | 127 | Every page and asset served, every element the panel script looks up exists, overlay carousel/transparency contract, **no `requestAnimationFrame` in the overlay loop**, an overlay client ignoring pings stays connected, JSON API, that no colour uses the Windows `#AARRGGBB` byte order, and that the brand icons are served and linked |
+| `test/run.js` | 226 | LRC parsing (fraction widths, multi-timestamp lines, offset headers, word tags, CRLF), artist splitting, untimed lyrics → estimated timings, text normalisation, scoring, the title gate, version demotion, score-first selection, the fallback policy, syllable-sheet conversion (YRC, KRC, QRC), the KRC cipher, session selection, **stream-title detection** (so a song called `!NVADE SHOW!` is not mistaken for a Twitch tab), smtc-bridge payloads |
+| `test/engine.js` | 28 | Runs the real engine against a fake smtc-bridge: pausing is broadcast, position then freezes, no socket spam, resuming is broadcast, `refresh` bypasses a cached negative result, refresh-status re-reads the player, and an idle track still emits a heartbeat |
+| `test/ui.js` | 194 | Every page and asset served, every element the panel script looks up exists, overlay carousel/transparency contract, **no `requestAnimationFrame` in the overlay loop**, an overlay client ignoring pings stays connected, JSON API, that no colour uses the Windows `#AARRGGBB` byte order, and that the brand icons are served and linked |
+| `test/nowplaying.js` | 23 | Cover-derived tinting: dominant colour, letterboxed artwork ignored, contrast flip for light artwork, and the plate styles |
+| `test/karaoke.js` | 47 | The fill's geometry: progress at any position, syllable-timed lines, sticky end, offset handling, the two-copy mask, and the fallback to the even sweep |
+| `test/control.js` | 20 | Result ordering by title, artist or score, including numeric title order and locale independence |
+| `test/i18n.js` | 19 | Both dictionaries cover every visible string, the three languages resolve the same on the server and in the page, and the switcher is wired |
+| `test/updater.js` | 53 | The staged update end to end: zip reading, path refusal, backup, the swap helper, and the cache rules |
 
 `npm test` additionally runs live lookups: a Japanese, an English and a Chinese
 track, plus a deliberately unmatchable one, and smoke-tests each provider.
@@ -486,6 +492,7 @@ test now.
 | `DELETE` | `/api/cache` · `/api/cache/:hash` | Clear all / one entry |
 | `GET` / `DELETE` | `/api/history` | Recently played |
 | `POST` | `/api/refresh` | Re-resolve the current track |
+| `POST` | `/api/resync` | Re-read the player now instead of waiting for the next poll |
 | `POST` | `/api/candidate` | Apply a specific search result |
 | `POST` | `/api/manual` | Apply pasted LRC |
 | `POST` / `PUT` | `/api/offset` | Nudge / set the lyric offset |
@@ -562,9 +569,10 @@ line-accurate rather than frame-accurate even with a cooperative player.
 - Only sources that publish a Windows media session can be seen. If a player hides
   SMTC, enable "system media controls" in its own settings.
 - Some players need to be *playing* before Windows reports their session.
-- The overlay is plain text — no word-by-word highlight, because none of the four
-  sources exposes reliable word timings for arbitrary tracks.
-- Translations come from NetEase and QQ only. LRCLIB and Kugou return original
+- Karaoke timing depends on the source, not on Chorus. NetEase, QQ, Kugou and Qishui
+  publish per-syllable sheets, and the fill follows them; when a song only has a plain
+  sheet, the fill falls back to an even sweep across the line.
+- Translations come from NetEase, QQ and Qishui only. LRCLIB and Kugou return original
   lyrics.
 - Official streaming APIs are deliberately not used — they need per-user OAuth, and
   Windows already gives us the metadata.
